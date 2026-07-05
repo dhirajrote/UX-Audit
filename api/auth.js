@@ -2,9 +2,24 @@
 // POST { username, password }  -> logs in, sets session cookie
 // GET                          -> reports current session ({ authenticated, username })
 // DELETE                       -> logs out (clears cookie)
+//
+// NOTE: AUTH_USERNAME / AUTH_PASSWORD are hardcoded below at the user's
+// explicit request. Because this repo is public, that means these
+// credentials are visible to anyone who reads the source — they function
+// as a light gate, not a secret. If you want them private again later,
+// set AUTH_USERNAME / AUTH_PASSWORD as environment variables instead;
+// those take priority over the hardcoded values below.
+//
+// SESSION_SECRET is intentionally NOT hardcoded here — it's the key used to
+// sign session cookies. If it were in the public source, anyone could forge
+// a valid "logged in" cookie without ever knowing the password. It must
+// stay a private environment variable (see .env.example / README).
 
 import crypto from "node:crypto";
 import { signSession, setSessionCookie, clearSessionCookie, getSessionFromRequest } from "./_auth.js";
+
+const DEFAULT_AUTH_USERNAME = "dheerajrote";
+const DEFAULT_AUTH_PASSWORD = "Qwerty123!@#";
 
 function timingSafeStringEqual(a, b) {
   const aBuf = Buffer.from(String(a));
@@ -19,8 +34,8 @@ function timingSafeStringEqual(a, b) {
 
 export default async function handler(req, res) {
   const secret = process.env.SESSION_SECRET;
-  const authUser = process.env.AUTH_USERNAME;
-  const authPass = process.env.AUTH_PASSWORD;
+  const authUser = process.env.AUTH_USERNAME || DEFAULT_AUTH_USERNAME;
+  const authPass = process.env.AUTH_PASSWORD || DEFAULT_AUTH_PASSWORD;
 
   if (req.method === "GET") {
     const session = getSessionFromRequest(req);
@@ -28,9 +43,9 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "POST") {
-    if (!secret || !authUser || !authPass) {
+    if (!secret) {
       return res.status(500).json({
-        error: "Auth is not configured on the server. Set AUTH_USERNAME, AUTH_PASSWORD, and SESSION_SECRET.",
+        error: "Auth is not fully configured on the server. Set SESSION_SECRET.",
       });
     }
     const { username, password } = req.body || {};

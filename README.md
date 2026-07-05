@@ -18,22 +18,26 @@ Get a key from [console.anthropic.com](https://console.anthropic.com) → `ANTHR
 
 ## 3. Set up login
 
-The app is gated behind a simple sign-in screen backed by a signed session cookie (no extra auth service required). Set:
+The app is gated behind a simple sign-in screen backed by a signed session cookie (no extra auth service required).
 
-- `AUTH_USERNAME` = `dheerajrote`
-- `AUTH_PASSWORD` = `Qwerty123!@#`
+**Username and password are hardcoded** in `api/auth.js`:
+- Username: `dheerajrote`
+- Password: `Qwerty123!@#`
+
+⚠️ Because this repo is public, that means they are **visible to anyone who reads the source** — this is a light gate, not a real secret. If you want to change or hide them later without touching code, set `AUTH_USERNAME` / `AUTH_PASSWORD` as environment variables — those override the hardcoded values.
+
+You still need one required, private env var:
 - `SESSION_SECRET` = any long random string, e.g. generate one with:
   ```bash
   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
   ```
-
-These are **not** hardcoded in the source (this is a public repo) — they only exist as environment variables you set in Vercel / your local `.env`. Change `AUTH_USERNAME`/`AUTH_PASSWORD` any time to rotate the login.
+  This one **must** stay a private environment variable — it signs the session cookie. If it were hardcoded, anyone reading the repo could forge a valid login session without ever knowing the password.
 
 This is single-user, cookie-based auth — good for a personal/internal tool, not a full multi-account identity system. If you need multiple people with their own logins later, Supabase Auth (already in the stack) is the natural upgrade.
 
 ## 4. Configure environment variables
 
-Copy `.env.example` to `.env` and fill in all of the values above (2 Supabase + 1 Anthropic + 3 auth = 6 total). Locally, `vercel dev` reads `.env` automatically. On Vercel, add the same variables under **Project → Settings → Environment Variables**.
+Copy `.env.example` to `.env`. At minimum you need `SESSION_SECRET` plus the Supabase and Anthropic values from steps 1–2; `AUTH_USERNAME`/`AUTH_PASSWORD` are optional overrides. Locally, `vercel dev` reads `.env` automatically. On Vercel, add the same variables under **Project → Settings → Environment Variables**.
 
 **Never commit `.env`** — it's already in `.gitignore`.
 
