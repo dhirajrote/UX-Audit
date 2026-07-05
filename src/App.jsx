@@ -162,6 +162,21 @@ function allIssues(projects) {
 }
 
 async function callClaude(prompt, system) {
+  // Preferred path: our own backend proxy (/api/ai), which keeps the Anthropic
+  // API key server-side. Falls back to a direct call for environments where
+  // no backend is deployed (e.g. previewing this file as a Claude artifact).
+  try {
+    const res = await fetch("/api/ai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, system }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.text) return data.text;
+    }
+  } catch (e) { /* no backend available, fall through */ }
+
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -175,6 +190,39 @@ async function callClaude(prompt, system) {
   const data = await res.json();
   const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
   return text;
+}
+
+/* ---- persistence helpers: backend (Supabase via /api/state) with graceful fallback ---- */
+async function loadAppState() {
+  try {
+    const res = await fetch("/api/state?id=default");
+    if (res.ok) {
+      const { data } = await res.json();
+      if (data) return data;
+      return null; // backend reachable, just no saved state yet
+    }
+  } catch (e) { /* no backend, fall through to local fallbacks */ }
+  try {
+    const raw = (await window.storage?.get("uxaudit:state"))?.value;
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* not running inside Claude artifact */ }
+  try {
+    const raw = window.localStorage?.getItem("uxaudit:state");
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* ignore */ }
+  return null;
+}
+async function saveAppState(state) {
+  try {
+    const res = await fetch("/api/state?id=default", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(state),
+    });
+    if (res.ok) return;
+  } catch (e) { /* no backend, fall through to local fallbacks */ }
+  try { await window.storage?.set("uxaudit:state", JSON.stringify(state)); } catch (e) { /* ignore */ }
+  try { window.localStorage?.setItem("uxaudit:state", JSON.stringify(state)); } catch (e) { /* ignore */ }
 }
 
 /* ============================== APP ROOT ============================== */
@@ -215,9 +263,8 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await window.storage?.get("uxaudit:state");
-        if (res && res.value) {
-          const parsed = JSON.parse(res.value);
+        const parsed = await loadAppState();
+        if (parsed) {
           if (parsed.projects) setProjects(parsed.projects);
           if (parsed.screenTypes) setScreenTypes(parsed.screenTypes);
           if (parsed.areas) setAreas(parsed.areas);
@@ -230,10 +277,8 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (!loaded) return;
-    const t = setTimeout(async () => {
-      try {
-        await window.storage?.set("uxaudit:state", JSON.stringify({ projects, screenTypes, areas, severities, theme }));
-      } catch (e) { /* ignore */ }
+    const t = setTimeout(() => {
+      saveAppState({ projects, screenTypes, areas, severities, theme });
     }, 500);
     return () => clearTimeout(t);
   }, [projects, screenTypes, areas, severities, theme, loaded]);
