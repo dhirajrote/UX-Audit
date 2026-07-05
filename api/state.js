@@ -7,10 +7,13 @@
 // PUT  /api/state?id=default        -> body: {...}  -> upserts, returns { ok: true }
 
 import { getSupabase } from "./_supabase.js";
+import { requireAuth } from "./_auth.js";
 
 const TABLE = "app_state";
 
 export default async function handler(req, res) {
+  if (!requireAuth(req, res)) return; // requireAuth already sent the 401 response
+
   const id = (req.query && req.query.id) || "default";
 
   let supabase;

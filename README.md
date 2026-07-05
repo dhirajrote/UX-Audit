@@ -16,13 +16,28 @@ Now backed by a real backend: Vercel serverless functions for an AI proxy (keeps
 
 Get a key from [console.anthropic.com](https://console.anthropic.com) → `ANTHROPIC_API_KEY`.
 
-## 3. Configure environment variables
+## 3. Set up login
 
-Copy `.env.example` to `.env` and fill in the three values above. Locally, `vercel dev` reads `.env` automatically. On Vercel, add the same three variables under **Project → Settings → Environment Variables**.
+The app is gated behind a simple sign-in screen backed by a signed session cookie (no extra auth service required). Set:
+
+- `AUTH_USERNAME` = `dheerajrote`
+- `AUTH_PASSWORD` = `Qwerty123!@#`
+- `SESSION_SECRET` = any long random string, e.g. generate one with:
+  ```bash
+  node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+  ```
+
+These are **not** hardcoded in the source (this is a public repo) — they only exist as environment variables you set in Vercel / your local `.env`. Change `AUTH_USERNAME`/`AUTH_PASSWORD` any time to rotate the login.
+
+This is single-user, cookie-based auth — good for a personal/internal tool, not a full multi-account identity system. If you need multiple people with their own logins later, Supabase Auth (already in the stack) is the natural upgrade.
+
+## 4. Configure environment variables
+
+Copy `.env.example` to `.env` and fill in all of the values above (2 Supabase + 1 Anthropic + 3 auth = 6 total). Locally, `vercel dev` reads `.env` automatically. On Vercel, add the same variables under **Project → Settings → Environment Variables**.
 
 **Never commit `.env`** — it's already in `.gitignore`.
 
-## 4. Run it
+## 5. Run it
 
 ```bash
 npm install
@@ -31,30 +46,32 @@ npm install
 npm install -g vercel
 vercel dev
 
-# Frontend-only (AI/persistence calls will fail without the functions running)
+# Frontend-only (AI/persistence/login calls will fail without the functions running)
 npm run dev
 ```
 
-`vercel dev` will print a local URL (typically `http://localhost:3000`) serving both the app and `/api/ai`, `/api/state`.
+`vercel dev` will print a local URL (typically `http://localhost:3000`) serving both the app and `/api/ai`, `/api/state`, `/api/auth`.
 
-## 5. Deploy
+## 6. Deploy
 
-Push to GitHub (already done) → import the repo at [vercel.com/new](https://vercel.com/new) → add the same 3 environment variables in the Vercel dashboard → deploy. Vercel auto-detects the Vite frontend and the `/api` functions.
+Push to GitHub (already done) → import the repo at [vercel.com/new](https://vercel.com/new) → add all 6 environment variables in the Vercel dashboard → deploy. Vercel auto-detects the Vite frontend and the `/api` functions.
 
 ## Structure
 
-- `src/App.jsx` — the complete frontend application.
+- `src/App.jsx` — the complete frontend application (includes the login screen).
 - `src/main.jsx` — Vite/React entry point.
 - `index.html` — HTML shell.
-- `api/ai.js` — serverless function proxying AI generation requests to Anthropic.
-- `api/state.js` — serverless function reading/writing app state to Supabase.
+- `api/auth.js` — login / logout / session-check serverless function.
+- `api/_auth.js` — shared session signing/verification helpers (HMAC-signed cookie, no extra dependency).
+- `api/ai.js` — serverless function proxying AI generation requests to Anthropic (requires a valid session).
+- `api/state.js` — serverless function reading/writing app state to Supabase (requires a valid session).
 - `api/_supabase.js` — shared Supabase client (service role, server-side only).
 - `supabase/schema.sql` — one-time SQL to create the `app_state` table.
 
 ## Notes
 
-- The frontend calls `/api/ai` and `/api/state` first, and falls back to a direct (keyless) Anthropic call and browser storage if those routes aren't available — so this same `src/App.jsx` still works if you paste it back into a Claude artifact without a backend, just without persistence across sessions or a hidden API key.
+- The frontend calls `/api/auth`, `/api/ai`, and `/api/state` first, and falls back to skipping the login gate plus a direct (keyless) Anthropic call and browser storage if those routes aren't reachable at all — so this same `src/App.jsx` still works if you paste it back into a Claude artifact without a backend, just without login, persistence across sessions, or a hidden API key. If `/api/auth` responds but says you're not logged in, the login screen is shown as expected either way.
 - PDF/DOCX exports render as styled HTML (print-to-PDF for PDF, Word-compatible HTML for DOCX). PPTX exports as an HTML slide deck rather than a binary `.pptx`, since no pptx-writing library is used. See in-app labels for details.
-- This is single-tenant (one shared `app_state` row) — there's no login/multi-user support yet. Ask if you want auth added (Supabase Auth is a natural fit here).
+- This is single-tenant (one shared `app_state` row, one login) — ask if you want multi-user support added later.
 
 

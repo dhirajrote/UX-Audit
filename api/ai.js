@@ -3,7 +3,11 @@
 // API key never reaches the browser. Requires ANTHROPIC_API_KEY set in your
 // Vercel project's Environment Variables (or a local .env for `vercel dev`).
 
+import { requireAuth } from "./_auth.js";
+
 export default async function handler(req, res) {
+  if (!requireAuth(req, res)) return; // requireAuth already sent the 401 response
+
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });

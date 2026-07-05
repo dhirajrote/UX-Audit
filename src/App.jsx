@@ -8,7 +8,7 @@ import {
   TrendingUp, CircleAlert, CheckCircle2, ChevronsUpDown, GripVertical,
   FileText, FileSpreadsheet, FileType2, Presentation, Braces, Building2,
   Link2, Mail, RotateCcw, ExternalLink, Printer, CheckSquare, Square,
-  CalendarRange, UserCircle2, Image as ImageIcon, ArrowLeft, Info
+  CalendarRange, UserCircle2, Image as ImageIcon, ArrowLeft, Info, LogOut, Lock, Eye, EyeOff
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -227,7 +227,7 @@ async function saveAppState(state) {
 
 /* ============================== APP ROOT ============================== */
 
-export default function App() {
+function AppShell({ username, onLogout }) {
   const [theme, setTheme] = useState("light");
   const [projects, setProjects] = useState(() => makeSeedProjects());
   const [screenTypes, setScreenTypes] = useState(SCREEN_TYPE_DEFAULTS);
@@ -407,7 +407,7 @@ export default function App() {
     <div className={`uxa-root ${theme}`}>
       <StyleSheet />
       <div className="uxa-shell">
-        <Sidebar view={view} setView={setView} theme={theme} setTheme={setTheme} setCommandOpen={setCommandOpen} />
+        <Sidebar view={view} setView={setView} theme={theme} setTheme={setTheme} setCommandOpen={setCommandOpen} username={username} onLogout={onLogout} />
         <div className="uxa-main">
           <TopBar
             view={view}
@@ -507,9 +507,132 @@ export default function App() {
   );
 }
 
+/* ============================== AUTH GATE ============================== */
+
+export default function App() {
+  const [authState, setAuthState] = useState("checking"); // checking | required | authenticated
+  const [username, setUsername] = useState(null);
+  const [authError, setAuthError] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/auth");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.authenticated) {
+            setUsername(data.username);
+            setAuthState("authenticated");
+          } else {
+            setAuthState("required");
+          }
+        } else {
+          // /api/auth exists but errored unexpectedly — don't lock the user out
+          setAuthState("authenticated");
+        }
+      } catch (e) {
+        // No backend at all (e.g. previewing this file as a standalone Claude
+        // artifact) — skip the login gate rather than dead-ending the app.
+        setAuthState("authenticated");
+      }
+    })();
+  }, []);
+
+  async function login(u, p) {
+    setAuthError("");
+    try {
+      const res = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: u, password: p }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setUsername(data.username);
+        setAuthState("authenticated");
+        return true;
+      }
+      setAuthError(data.error || "Invalid username or password.");
+      return false;
+    } catch (e) {
+      setAuthError("Could not reach the server. Is the backend running?");
+      return false;
+    }
+  }
+
+  async function logout() {
+    try { await fetch("/api/auth", { method: "DELETE" }); } catch (e) { /* ignore */ }
+    setUsername(null);
+    setAuthState("required");
+  }
+
+  if (authState === "checking") {
+    return (
+      <div className="uxa-root light">
+        <StyleSheet />
+        <div className="uxa-auth-loading"><Loader2 size={22} className="spin" /></div>
+      </div>
+    );
+  }
+
+  if (authState === "required") {
+    return (
+      <div className="uxa-root light">
+        <StyleSheet />
+        <LoginScreen onLogin={login} error={authError} />
+      </div>
+    );
+  }
+
+  return <AppShell username={username} onLogout={username ? logout : null} />;
+}
+
+function LoginScreen({ onLogin, error }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!username.trim() || !password) return;
+    setBusy(true);
+    await onLogin(username.trim(), password);
+    setBusy(false);
+  }
+
+  return (
+    <div className="uxa-login-wrap">
+      <form className="uxa-login-card" onSubmit={handleSubmit}>
+        <div className="uxa-brand-mark lg"><Layers size={20} strokeWidth={2.5} /></div>
+        <h2>Sign in to Auditlane</h2>
+        <p>UX Audit Management</p>
+
+        <div className="uxa-form-field">
+          <label>Username</label>
+          <input autoFocus value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" autoComplete="username" />
+        </div>
+        <div className="uxa-form-field">
+          <label>Password</label>
+          <div className="uxa-password-row">
+            <input type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" autoComplete="current-password" />
+            <button type="button" onClick={() => setShowPassword((v) => !v)}>{showPassword ? <EyeOff size={14} /> : <Eye size={14} />}</button>
+          </div>
+        </div>
+
+        {error && <div className="uxa-login-error"><Lock size={13} /> {error}</div>}
+
+        <button className="uxa-btn primary full" type="submit" disabled={busy || !username.trim() || !password}>
+          {busy ? <Loader2 size={14} className="spin" /> : <Lock size={14} />} Sign in
+        </button>
+      </form>
+    </div>
+  );
+}
+
 /* ============================== SIDEBAR / TOPBAR ============================== */
 
-function Sidebar({ view, setView, theme, setTheme, setCommandOpen }) {
+function Sidebar({ view, setView, theme, setTheme, setCommandOpen, username, onLogout }) {
   const items = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { id: "projects", label: "Projects", icon: FolderKanban },
@@ -532,6 +655,13 @@ function Sidebar({ view, setView, theme, setTheme, setCommandOpen }) {
         ))}
       </nav>
       <div className="uxa-sidebar-footer">
+        {username && onLogout && (
+          <div className="uxa-user-row">
+            <div className="uxa-user-avatar">{username.slice(0, 1).toUpperCase()}</div>
+            <span>{username}</span>
+            <button title="Log out" onClick={onLogout}><LogOut size={13} /></button>
+          </div>
+        )}
         <button className="uxa-cmd-btn" onClick={() => setCommandOpen(true)}>
           <Command size={13} /> <span>Search</span> <kbd>⌘K</kbd>
         </button>
@@ -2332,6 +2462,25 @@ function StyleSheet() {
       .uxa-ai-output { margin-top: 10px; padding: 10px; background: var(--primary-soft); border-radius: var(--radius-sm); font-size: 12.5px; color: var(--text); white-space: pre-wrap; max-height: 200px; overflow-y: auto; }
 
       .uxa-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 999px; font-size: 12.5px; display: flex; align-items: center; gap: 6px; z-index: 80; box-shadow: var(--shadow); }
+
+      /* Auth */
+      .uxa-auth-loading { display: flex; align-items: center; justify-content: center; height: 100vh; color: var(--primary); }
+      .uxa-login-wrap { display: flex; align-items: center; justify-content: center; height: 100vh; }
+      .uxa-login-card { width: 340px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 28px 26px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; }
+      .uxa-brand-mark.lg { width: 42px; height: 42px; border-radius: 12px; margin-bottom: 6px; }
+      .uxa-login-card h2 { font-size: 17px; margin: 4px 0 0; }
+      .uxa-login-card p { font-size: 12px; color: var(--text-muted); margin: 0 0 18px; }
+      .uxa-login-card .uxa-form-field { width: 100%; text-align: left; }
+      .uxa-password-row { display: flex; align-items: center; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); }
+      .uxa-password-row input { border: none; background: transparent; flex: 1; }
+      .uxa-password-row button { border: none; background: transparent; color: var(--text-faint); padding: 0 10px; }
+      .uxa-login-error { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #DC2626; background: #FEE2E2; border-radius: var(--radius-sm); padding: 8px 10px; margin-bottom: 12px; width: 100%; }
+      .uxa-login-card .uxa-btn.full { margin-top: 4px; }
+      .uxa-user-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-sm); background: var(--bg); border: 1px solid var(--border); font-size: 12px; font-weight: 600; }
+      .uxa-user-avatar { width: 20px; height: 20px; border-radius: 50%; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 10px; flex-shrink: 0; }
+      .uxa-user-row span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .uxa-user-row button { border: none; background: transparent; color: var(--text-faint); display: flex; }
+      .uxa-user-row button:hover { color: #DC2626; }
 
       /* Export Center */
       .uxa-export-modal { width: 980px; max-width: 94vw; max-height: 88vh; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); display: flex; flex-direction: column; overflow: hidden; }
