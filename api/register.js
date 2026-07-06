@@ -10,6 +10,7 @@
 import bcrypt from "bcryptjs";
 import { signSession, setSessionCookie } from "./_auth.js";
 import { getSupabase } from "./_supabase.js";
+import { buildInitialState } from "./_seedData.js";
 
 const USERNAME_RE = /^[a-z0-9_.-]{3,32}$/i;
 
@@ -62,6 +63,16 @@ export default async function handler(req, res) {
     .single();
 
   if (insertErr) return res.status(500).json({ error: insertErr.message });
+
+  // Best-effort: give every new account 2 sample projects to start from,
+  // so the app isn't a blank slate on first login. Never blocks registration
+  // if this write fails for some reason — the account itself is already created.
+  try {
+    await supabase.from("app_state").upsert(
+      { id: created.id, data: buildInitialState(), updated_at: new Date().toISOString() },
+      { onConflict: "id" }
+    );
+  } catch (e) { /* non-fatal — user just starts with an empty workspace */ }
 
   const token = signSession({ uid: created.id, username: created.username, isAdmin: false }, secret);
   setSessionCookie(res, token);

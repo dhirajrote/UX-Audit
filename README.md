@@ -26,7 +26,7 @@ Get a key from [console.anthropic.com](https://console.anthropic.com) → `ANTHR
 
 ⚠️ Because this repo is public, that means these are **visible to anyone who reads the source** — a light gate, not a real secret. Override with `AUTH_USERNAME` / `AUTH_PASSWORD` env vars if you want them private instead.
 
-**Registered accounts** — anyone can create an account from the login screen ("Create one" link → username + password, 8+ char minimum). Passwords are hashed with bcrypt before being stored; nothing is ever stored in plaintext. Each registered account gets its own private `app_state` row — **registered users never see the admin's projects, and different registered users never see each other's projects.**
+**Registered accounts** — anyone can create an account from the login screen ("Create one" link → username + password, 8+ char minimum). Passwords are hashed with bcrypt before being stored; nothing is ever stored in plaintext. Each registered account gets its own private `app_state` row — **registered users never see the admin's projects, and different registered users never see each other's projects.** Every new account starts pre-loaded with 2 sample projects (an e-commerce checkout audit and a mobile onboarding audit, each with a couple of example issues) so the app isn't a blank screen on first login — delete or edit them like any other project once you get your bearings.
 
 You still need one required, private env var:
 - `SESSION_SECRET` = any long random string, e.g. generate one with:
@@ -68,7 +68,8 @@ Push to GitHub (already done) → import the repo at [vercel.com/new](https://ve
 - `src/main.jsx` — Vite/React entry point.
 - `index.html` — HTML shell.
 - `api/auth.js` — login / logout / session-check (checks the admin account first, then the `users` table).
-- `api/register.js` — creates a new user account (bcrypt-hashed password) and logs them in.
+- `api/register.js` — creates a new user account (bcrypt-hashed password), seeds their workspace with 2 sample projects, and logs them in.
+- `api/_seedData.js` — the 2 sample projects (plus default screen types/areas/severities) given to every newly registered account.
 - `api/users.js` — admin-only: list registered accounts, reset a user's password, or delete an account (and their data).
 - `api/_auth.js` — shared session signing/verification helpers (HMAC-signed cookie, no extra dependency).
 - `api/ai.js` — serverless function proxying AI generation requests to Anthropic (requires a valid session, any account).
