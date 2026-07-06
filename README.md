@@ -2,7 +2,7 @@
 
 A single-file React application for running structured UX/UI audits: project workspaces, module/screen trees, issue tracking with AI-assisted recommendations, severity/area configuration, reporting, and a full multi-format Export Center (PDF, XLSX, CSV, DOCX, PPTX, JSON).
 
-Now backed by a real backend: Vercel serverless functions for an AI proxy (keeps your Anthropic key secret) and Supabase Postgres for persistence.
+Now backed by a real backend: Vercel serverless functions for an AI proxy (keeps your Anthropic key secret) and Supabase Postgres for persistence, plus a login gate. The Audit Workspace also supports bulk import (paste an outline or upload a CSV) and inline rename/delete for modules and screens.
 
 ## 1. Set up Supabase (persistence)
 

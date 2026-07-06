@@ -8,13 +8,14 @@ import {
   TrendingUp, CircleAlert, CheckCircle2, ChevronsUpDown, GripVertical,
   FileText, FileSpreadsheet, FileType2, Presentation, Braces, Building2,
   Link2, Mail, RotateCcw, ExternalLink, Printer, CheckSquare, Square,
-  CalendarRange, UserCircle2, Image as ImageIcon, ArrowLeft, Info, LogOut, Lock, Eye, EyeOff
+  CalendarRange, UserCircle2, Image as ImageIcon, ArrowLeft, Info, LogOut, Lock, Eye, EyeOff, Upload, FileUp, ListChecks
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend, LineChart, Line
 } from "recharts";
 import * as XLSX from "xlsx";
+import Papa from "papaparse";
 
 /* ============================== SEED DATA ============================== */
 
@@ -369,6 +370,23 @@ function AppShell({ username, onLogout }) {
   function addModule(projectId, name) {
     setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, modules: [...p.modules, { id: uid("mod"), name, screens: [] }] } : p)));
   }
+  function renameModule(projectId, moduleId, name) {
+    setProjects((prev) => prev.map((p) => (p.id !== projectId ? p : {
+      ...p, modules: p.modules.map((m) => (m.id === moduleId ? { ...m, name } : m)),
+    })));
+    showToast("Module renamed", "check");
+  }
+  function deleteModule(projectId, moduleId) {
+    setProjects((prev) => prev.map((p) => (p.id !== projectId ? p : {
+      ...p, modules: p.modules.filter((m) => m.id !== moduleId),
+    })));
+    setActiveScreenId((cur) => {
+      const p = projects.find((pp) => pp.id === projectId);
+      const mod = p?.modules.find((m) => m.id === moduleId);
+      return mod?.screens.some((s) => s.id === cur) ? null : cur;
+    });
+    showToast("Module deleted");
+  }
   function addScreen(projectId, moduleId, name, type) {
     const screen = mkScreen(name, type, ["UX", "UI"], []);
     setProjects((prev) => prev.map((p) => (p.id !== projectId ? p : {
@@ -377,6 +395,37 @@ function AppShell({ username, onLogout }) {
     logActivity(`Screen "${name}" added`);
     setActiveScreenId(screen.id);
     return screen.id;
+  }
+  function deleteScreen(projectId, moduleId, screenId) {
+    setProjects((prev) => prev.map((p) => (p.id !== projectId ? p : {
+      ...p, modules: p.modules.map((m) => (m.id !== moduleId ? m : { ...m, screens: m.screens.filter((s) => s.id !== screenId) })),
+    })));
+    setActiveScreenId((cur) => (cur === screenId ? null : cur));
+    showToast("Screen deleted");
+  }
+  function importIntoProject(projectId, parsedModules, options) {
+    let addedModules = 0, addedScreens = 0, skipped = 0;
+    setProjects((prev) => prev.map((p) => {
+      if (p.id !== projectId) return p;
+      const modules = p.modules.map((m) => ({ ...m, screens: [...m.screens] }));
+      parsedModules.forEach((pm) => {
+        let target = modules.find((m) => m.name.trim().toLowerCase() === pm.name.trim().toLowerCase());
+        if (!target) {
+          target = { id: uid("mod"), name: pm.name, screens: [] };
+          modules.push(target);
+          addedModules++;
+        }
+        pm.screens.forEach((ps) => {
+          const dup = options?.skipDuplicates && target.screens.some((s) => s.name.trim().toLowerCase() === ps.name.trim().toLowerCase());
+          if (dup) { skipped++; return; }
+          target.screens.push(mkScreen(ps.name, ps.type || "Screen", ["UX", "UI"], []));
+          addedScreens++;
+        });
+      });
+      return { ...p, modules };
+    }));
+    logActivity(`Imported ${addedScreens} screen(s) across ${addedModules} new module(s)`);
+    showToast(`Imported ${addedScreens} screen${addedScreens === 1 ? "" : "s"}${skipped ? `, skipped ${skipped} duplicate${skipped === 1 ? "" : "s"}` : ""}`, "check");
   }
 
   const dashStats = useMemo(() => {
@@ -431,6 +480,8 @@ function AppShell({ username, onLogout }) {
                 activeScreenId={activeScreenId} setActiveScreenId={setActiveScreenId}
                 screenTypes={screenTypes} areas={areas} severities={severities}
                 updateScreen={updateScreen} addModule={addModule} addScreen={addScreen}
+                renameModule={renameModule} deleteModule={deleteModule} deleteScreen={deleteScreen}
+                importIntoProject={importIntoProject}
                 onOpenIssuePanel={(mode, screenId, issue) => setIssuePanel({ mode, screenId, issue })}
                 onDeleteIssue={deleteIssue}
                 onPickProject={(id) => openProject(id)}
@@ -868,13 +919,18 @@ function NewProjectModal({ onClose, onCreate }) {
 
 /* ============================== AUDIT WORKSPACE ============================== */
 
-function AuditWorkspace({ project, projects, activeScreenId, setActiveScreenId, screenTypes, areas, severities, updateScreen, addModule, addScreen, onOpenIssuePanel, onDeleteIssue, onPickProject, showToast, onExportProject, onExportScreen, onExportIssueList }) {
+function AuditWorkspace({ project, projects, activeScreenId, setActiveScreenId, screenTypes, areas, severities, updateScreen, addModule, addScreen, renameModule, deleteModule, deleteScreen, importIntoProject, onOpenIssuePanel, onDeleteIssue, onPickProject, showToast, onExportProject, onExportScreen, onExportIssueList }) {
   const [expanded, setExpanded] = useState(() => new Set(project?.modules?.map((m) => m.id) || []));
   const [addingModule, setAddingModule] = useState(false);
   const [moduleName, setModuleName] = useState("");
   const [addingScreenTo, setAddingScreenTo] = useState(null);
   const [screenName, setScreenName] = useState("");
   const [screenType, setScreenType] = useState(screenTypes[0]?.name || "Screen");
+  const [editingModuleId, setEditingModuleId] = useState(null);
+  const [editModuleValue, setEditModuleValue] = useState("");
+  const [editingScreenId, setEditingScreenId] = useState(null);
+  const [editScreenValue, setEditScreenValue] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
 
   useEffect(() => { setExpanded(new Set(project?.modules?.map((m) => m.id) || [])); }, [project?.id]);
 
@@ -896,6 +952,23 @@ function AuditWorkspace({ project, projects, activeScreenId, setActiveScreenId, 
   function toggleMod(id) {
     setExpanded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
+  function startEditModule(m) { setEditingModuleId(m.id); setEditModuleValue(m.name); }
+  function commitEditModule(m) {
+    if (editModuleValue.trim() && editModuleValue.trim() !== m.name) renameModule(project.id, m.id, editModuleValue.trim());
+    setEditingModuleId(null);
+  }
+  function confirmDeleteModule(m) {
+    const msg = m.screens.length ? `Delete "${m.name}" and its ${m.screens.length} screen(s)? This can't be undone.` : `Delete "${m.name}"?`;
+    if (window.confirm(msg)) deleteModule(project.id, m.id);
+  }
+  function startEditScreen(s) { setEditingScreenId(s.id); setEditScreenValue(s.name); }
+  function commitEditScreen(s) {
+    if (editScreenValue.trim() && editScreenValue.trim() !== s.name) updateScreen(s.id, { name: editScreenValue.trim() });
+    setEditingScreenId(null);
+  }
+  function confirmDeleteScreen(m, s) {
+    if (window.confirm(`Delete screen "${s.name}"? Its ${s.issues.length} logged issue(s) will be removed too.`)) deleteScreen(project.id, m.id, s.id);
+  }
 
   return (
     <div className="uxa-workspace">
@@ -903,8 +976,9 @@ function AuditWorkspace({ project, projects, activeScreenId, setActiveScreenId, 
         <div className="uxa-tree-head">
           <span>Modules</span>
           <div style={{ display: "flex", gap: 4 }}>
+            <button title="Import modules/screens" onClick={() => setImportOpen(true)}><Upload size={13} /></button>
             <button title="Export project" onClick={() => onExportProject(project.id)}><Download size={13} /></button>
-            <button onClick={() => setAddingModule((v) => !v)}><Plus size={13} /></button>
+            <button title="Add module" onClick={() => setAddingModule((v) => !v)}><Plus size={13} /></button>
           </div>
         </div>
         {addingModule && (
@@ -917,19 +991,47 @@ function AuditWorkspace({ project, projects, activeScreenId, setActiveScreenId, 
         <div className="uxa-tree-list">
           {project.modules.map((m) => (
             <div key={m.id} className="uxa-tree-mod">
-              <button className="uxa-tree-mod-row" onClick={() => toggleMod(m.id)}>
-                {expanded.has(m.id) ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                <span>{m.name}</span>
-                <span className="uxa-tree-count">{m.screens.length}</span>
-              </button>
+              {editingModuleId === m.id ? (
+                <div className="uxa-tree-edit-row">
+                  <input autoFocus value={editModuleValue} onChange={(e) => setEditModuleValue(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") commitEditModule(m); if (e.key === "Escape") setEditingModuleId(null); }}
+                    onBlur={() => commitEditModule(m)} />
+                </div>
+              ) : (
+                <div className="uxa-tree-mod-row-wrap">
+                  <button className="uxa-tree-mod-row" onClick={() => toggleMod(m.id)}>
+                    {expanded.has(m.id) ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    <span>{m.name}</span>
+                    <span className="uxa-tree-count">{m.screens.length}</span>
+                  </button>
+                  <div className="uxa-tree-row-actions">
+                    <button title="Rename module" onClick={() => startEditModule(m)}><Pencil size={11} /></button>
+                    <button title="Delete module" onClick={() => confirmDeleteModule(m)}><Trash2 size={11} /></button>
+                  </div>
+                </div>
+              )}
               {expanded.has(m.id) && (
                 <div className="uxa-tree-screens">
                   {m.screens.map((s) => (
-                    <button key={s.id} className={`uxa-tree-screen ${activeScreenId === s.id ? "active" : ""}`} onClick={() => setActiveScreenId(s.id)}>
-                      {s.type === "screen" ? <Monitor size={13} /> : <Smartphone size={13} />}
-                      <span>{s.name}</span>
-                      {s.issues.length > 0 && <span className="uxa-tree-badge">{s.issues.length}</span>}
-                    </button>
+                    editingScreenId === s.id ? (
+                      <div className="uxa-tree-edit-row nested" key={s.id}>
+                        <input autoFocus value={editScreenValue} onChange={(e) => setEditScreenValue(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") commitEditScreen(s); if (e.key === "Escape") setEditingScreenId(null); }}
+                          onBlur={() => commitEditScreen(s)} />
+                      </div>
+                    ) : (
+                      <div className="uxa-tree-screen-row-wrap" key={s.id}>
+                        <button className={`uxa-tree-screen ${activeScreenId === s.id ? "active" : ""}`} onClick={() => setActiveScreenId(s.id)}>
+                          {s.type === "screen" ? <Monitor size={13} /> : <Smartphone size={13} />}
+                          <span>{s.name}</span>
+                          {s.issues.length > 0 && <span className="uxa-tree-badge">{s.issues.length}</span>}
+                        </button>
+                        <div className="uxa-tree-row-actions">
+                          <button title="Rename screen" onClick={() => startEditScreen(s)}><Pencil size={11} /></button>
+                          <button title="Delete screen" onClick={() => confirmDeleteScreen(m, s)}><Trash2 size={11} /></button>
+                        </div>
+                      </div>
+                    )
                   ))}
                   {addingScreenTo === m.id ? (
                     <div className="uxa-tree-add nested">
@@ -962,6 +1064,176 @@ function AuditWorkspace({ project, projects, activeScreenId, setActiveScreenId, 
           <Monitor size={26} /><h3>No screen selected</h3><p>Pick a screen from the module tree, or add a new one.</p>
         </div>
       )}
+
+      {importOpen && (
+        <ImportCenter
+          project={project} screenTypes={screenTypes}
+          onClose={() => setImportOpen(false)}
+          onImport={(parsed, options) => { importIntoProject(project.id, parsed, options); setImportOpen(false); }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ============================== IMPORT CENTER ============================== */
+
+function parseOutlineText(text) {
+  const lines = text.split("\n");
+  const modules = [];
+  let current = null;
+  lines.forEach((raw) => {
+    if (!raw.trim()) return;
+    const isIndented = /^[\s\t]/.test(raw) && raw.trim() !== raw;
+    const line = raw.trim();
+    const typeMatch = line.match(/\(([^)]+)\)\s*$/);
+    const type = typeMatch ? typeMatch[1].trim() : null;
+    const name = typeMatch ? line.slice(0, typeMatch.index).trim() : line;
+    if (!name) return;
+    if (isIndented && current) {
+      current.screens.push({ name, type });
+    } else {
+      current = { name, screens: [] };
+      modules.push(current);
+    }
+  });
+  return modules;
+}
+
+function parseCSVText(text) {
+  const result = Papa.parse(text.trim(), { header: true, skipEmptyLines: true });
+  const rows = result.data || [];
+  const byModule = new Map();
+  rows.forEach((row) => {
+    const keys = Object.keys(row).reduce((acc, k) => { acc[k.trim().toLowerCase()] = row[k]; return acc; }, {});
+    const moduleName = (keys.module || keys["module name"] || "General").trim();
+    const screenName = (keys.screen || keys["screen name"] || "").trim();
+    const type = (keys.type || keys["screen type"] || "").trim();
+    if (!screenName) return;
+    if (!byModule.has(moduleName)) byModule.set(moduleName, []);
+    byModule.get(moduleName).push({ name: screenName, type: type || null });
+  });
+  return Array.from(byModule.entries()).map(([name, screens]) => ({ name, screens }));
+}
+
+function ImportCenter({ project, screenTypes, onClose, onImport }) {
+  const [mode, setMode] = useState("outline");
+  const [outlineText, setOutlineText] = useState("");
+  const [csvText, setCsvText] = useState("");
+  const [csvFileName, setCsvFileName] = useState("");
+  const [skipDuplicates, setSkipDuplicates] = useState(true);
+  const [error, setError] = useState("");
+
+  const parsed = useMemo(() => {
+    try {
+      const raw = mode === "outline" ? parseOutlineText(outlineText) : parseCSVText(csvText);
+      return raw.map((m) => ({
+        ...m,
+        screens: m.screens.map((s) => ({
+          name: s.name,
+          type: screenTypes.find((t) => t.name.toLowerCase() === (s.type || "").toLowerCase())?.name || "Screen",
+        })),
+      })).filter((m) => m.screens.length > 0 || m.name);
+    } catch (e) {
+      return [];
+    }
+  }, [mode, outlineText, csvText, screenTypes]);
+
+  const totalScreens = parsed.reduce((sum, m) => sum + m.screens.length, 0);
+
+  function handleCSVUpload(file) {
+    if (!file) return;
+    setCsvFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => setCsvText(String(reader.result || ""));
+    reader.onerror = () => setError("Could not read that file.");
+    reader.readAsText(file);
+  }
+
+  return (
+    <div className="uxa-modal-overlay top" onClick={onClose}>
+      <div className="uxa-import-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="uxa-export-head">
+          <div><h2>Import into {project.name}</h2><p>Bulk-add modules and screens from text or a CSV file</p></div>
+          <button onClick={onClose}><X size={18} /></button>
+        </div>
+
+        <div className="uxa-import-body">
+          <div className="uxa-import-main">
+            <div className="uxa-settings-tabs">
+              <button className={mode === "outline" ? "active" : ""} onClick={() => setMode("outline")}>Paste outline</button>
+              <button className={mode === "csv" ? "active" : ""} onClick={() => setMode("csv")}>Upload CSV</button>
+            </div>
+
+            {mode === "outline" ? (
+              <>
+                <p className="uxa-import-hint">
+                  One module per unindented line, screens indented underneath. Optionally add a type in parentheses (matches your Settings → Screen types; defaults to "Screen").
+                </p>
+                <textarea
+                  className="uxa-import-textarea"
+                  rows={12}
+                  placeholder={"Authentication\n  Login (Screen)\n  Register (Screen)\n  Forgot Password (Popup)\nDashboard\n  Overview (Screen)"}
+                  value={outlineText}
+                  onChange={(e) => setOutlineText(e.target.value)}
+                />
+              </>
+            ) : (
+              <>
+                <p className="uxa-import-hint">CSV with columns: <strong>Module, Screen, Type</strong> (Type is optional). Export a spreadsheet from Excel/Sheets as CSV, or paste the raw text below.</p>
+                <label className="uxa-upload-zone">
+                  <FileUp size={16} /> {csvFileName || "Choose a .csv file"}
+                  <input type="file" accept=".csv,text/csv" hidden onChange={(e) => handleCSVUpload(e.target.files[0])} />
+                </label>
+                <textarea
+                  className="uxa-import-textarea"
+                  rows={8}
+                  placeholder={"Module,Screen,Type\nAuthentication,Login,Screen\nAuthentication,Forgot Password,Popup"}
+                  value={csvText}
+                  onChange={(e) => setCsvText(e.target.value)}
+                />
+              </>
+            )}
+
+            <label className="uxa-checkbox" style={{ marginTop: 10 }}>
+              <input type="checkbox" checked={skipDuplicates} onChange={(e) => setSkipDuplicates(e.target.checked)} />
+              Skip screens that already exist in the target module (matched by name)
+            </label>
+            {error && <div className="uxa-login-error" style={{ marginTop: 10 }}><Info size={13} /> {error}</div>}
+          </div>
+
+          <div className="uxa-import-preview">
+            <div className="uxa-preview-label"><ListChecks size={12} /> Preview</div>
+            {parsed.length === 0 ? (
+              <div className="uxa-empty" style={{ padding: "30px 10px" }}>Nothing parsed yet — paste text or upload a CSV.</div>
+            ) : (
+              <div className="uxa-import-preview-list">
+                {parsed.map((m, i) => (
+                  <div className="uxa-import-preview-mod" key={i}>
+                    <strong>{m.name}</strong>
+                    <ul>
+                      {m.screens.map((s, j) => <li key={j}>{s.name} <span>{s.type}</span></li>)}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="uxa-preview-meta">
+              <span>{parsed.length} module{parsed.length === 1 ? "" : "s"}</span><span>·</span><span>{totalScreens} screen{totalScreens === 1 ? "" : "s"}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="uxa-export-footer">
+          <span className="uxa-text-muted">Existing modules with matching names will be merged, not duplicated.</span>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="uxa-btn" onClick={onClose}>Cancel</button>
+            <button className="uxa-btn primary" disabled={totalScreens === 0} onClick={() => onImport(parsed, { skipDuplicates })}>
+              <Upload size={14} /> Import {totalScreens || ""} screen{totalScreens === 1 ? "" : "s"}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2401,6 +2673,31 @@ function StyleSheet() {
       .uxa-tree-add { padding: 6px; }
       .uxa-tree-add input, .uxa-tree-add select { width: 100%; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; background: var(--bg); margin-bottom: 4px; font-size: 12px; }
       .uxa-tree-add.nested { padding-left: 20px; }
+      .uxa-tree-mod-row-wrap { display: flex; align-items: center; }
+      .uxa-tree-mod-row-wrap .uxa-tree-mod-row { flex: 1; }
+      .uxa-tree-screen-row-wrap { display: flex; align-items: center; }
+      .uxa-tree-screen-row-wrap .uxa-tree-screen { flex: 1; }
+      .uxa-tree-row-actions { display: flex; gap: 2px; opacity: 0; transition: opacity 0.1s; flex-shrink: 0; padding-right: 2px; }
+      .uxa-tree-mod-row-wrap:hover .uxa-tree-row-actions, .uxa-tree-screen-row-wrap:hover .uxa-tree-row-actions { opacity: 1; }
+      .uxa-tree-row-actions button { border: none; background: transparent; color: var(--text-faint); padding: 4px; border-radius: 5px; display: flex; }
+      .uxa-tree-row-actions button:hover { background: var(--bg); color: var(--primary); }
+      .uxa-tree-edit-row input { width: 100%; border: 1px solid var(--primary); border-radius: 6px; padding: 6px 8px; background: var(--bg); font-size: 12.5px; font-weight: 600; }
+      .uxa-tree-edit-row.nested { padding-left: 20px; }
+      .uxa-tree-edit-row.nested input { font-weight: 400; font-size: 12px; }
+
+      /* Import Center */
+      .uxa-import-modal { width: 860px; max-width: 94vw; max-height: 88vh; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); display: flex; flex-direction: column; overflow: hidden; }
+      .uxa-import-body { display: grid; grid-template-columns: 1fr 260px; gap: 0; overflow: hidden; flex: 1; min-height: 0; }
+      .uxa-import-main { overflow-y: auto; padding: 18px 24px; border-right: 1px solid var(--border); }
+      .uxa-import-preview { padding: 18px; overflow-y: auto; background: var(--bg); }
+      .uxa-import-hint { font-size: 11.5px; color: var(--text-muted); margin: 10px 0; line-height: 1.5; }
+      .uxa-import-textarea { width: 100%; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; background: var(--bg); font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; resize: vertical; margin-top: 8px; }
+      .uxa-import-preview-list { display: flex; flex-direction: column; gap: 10px; max-height: 360px; overflow-y: auto; }
+      .uxa-import-preview-mod { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; background: var(--surface); }
+      .uxa-import-preview-mod strong { font-size: 12px; }
+      .uxa-import-preview-mod ul { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+      .uxa-import-preview-mod li { font-size: 11px; color: var(--text-muted); display: flex; justify-content: space-between; }
+      .uxa-import-preview-mod li span { color: var(--text-faint); font-size: 10px; }
 
       .uxa-screenpane { display: grid; grid-template-columns: 1fr 220px; gap: 14px; align-items: start; }
       .uxa-screenpane-main { min-width: 0; }
