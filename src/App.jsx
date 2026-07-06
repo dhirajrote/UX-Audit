@@ -229,7 +229,7 @@ async function saveAppState(state) {
 /* ============================== APP ROOT ============================== */
 
 function AppShell({ username, onLogout }) {
-  const [theme, setTheme] = useState("light");
+  const [theme, setTheme] = useState("dark");
   const [projects, setProjects] = useState(() => makeSeedProjects());
   const [screenTypes, setScreenTypes] = useState(SCREEN_TYPE_DEFAULTS);
   const [areas, setAreas] = useState(AREA_DEFAULTS);
@@ -249,6 +249,7 @@ function AppShell({ username, onLogout }) {
   const [toast, setToast] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState(null);
   const [exportCtx, setExportCtx] = useState(null);
   const openExport = useCallback((ctx) => setExportCtx(ctx), []);
 
@@ -358,13 +359,32 @@ function AppShell({ username, onLogout }) {
     return `${auditType}-${String(next).padStart(3, "0")}`;
   }
 
-  function createProject(name, client) {
-    const p = { id: uid("proj"), name, client, status: "Draft", updatedAt: Date.now(), modules: [{ id: uid("mod"), name: "General", screens: [] }] };
+  function createProject(name, client, status) {
+    const p = { id: uid("proj"), name, client, status: status || "Draft", updatedAt: Date.now(), modules: [{ id: uid("mod"), name: "General", screens: [] }] };
     setProjects((prev) => [p, ...prev]);
     logActivity(`Project ${name} created`);
     showToast("Project created", "check");
     setNewProjectOpen(false);
     openProject(p.id);
+  }
+
+  function editProject(projectId, patch) {
+    setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, ...patch, updatedAt: Date.now() } : p)));
+    logActivity(`Project "${patch.name || ""}" updated`);
+    showToast("Project updated", "check");
+    setEditingProject(null);
+  }
+
+  function deleteProject(projectId) {
+    const p = projects.find((pp) => pp.id === projectId);
+    setProjects((prev) => prev.filter((pp) => pp.id !== projectId));
+    if (activeProjectId === projectId) {
+      setActiveProjectId(null);
+      setActiveScreenId(null);
+      setView("projects");
+    }
+    logActivity(`Project "${p?.name || ""}" deleted`);
+    showToast("Project deleted");
   }
 
   function addModule(projectId, name) {
@@ -472,7 +492,8 @@ function AppShell({ username, onLogout }) {
                 onExport={() => openExport({ scope: "allProjects" })} />
             )}
             {view === "projects" && (
-              <ProjectsView projects={projects} onOpen={openProject} onNew={() => setNewProjectOpen(true)} />
+              <ProjectsView projects={projects} onOpen={openProject} onNew={() => setNewProjectOpen(true)}
+                onEdit={(p) => setEditingProject(p)} onDelete={deleteProject} />
             )}
             {view === "workspace" && (
               <AuditWorkspace
@@ -532,6 +553,14 @@ function AppShell({ username, onLogout }) {
 
       {newProjectOpen && (
         <NewProjectModal onClose={() => setNewProjectOpen(false)} onCreate={createProject} />
+      )}
+
+      {editingProject && (
+        <NewProjectModal
+          project={editingProject}
+          onClose={() => setEditingProject(null)}
+          onCreate={(name, client, status) => editProject(editingProject.id, { name, client, status })}
+        />
       )}
 
       {exportCtx && (
@@ -619,7 +648,7 @@ export default function App() {
 
   if (authState === "checking") {
     return (
-      <div className="uxa-root light">
+      <div className="uxa-root dark">
         <StyleSheet />
         <div className="uxa-auth-loading"><Loader2 size={22} className="spin" /></div>
       </div>
@@ -628,7 +657,7 @@ export default function App() {
 
   if (authState === "required") {
     return (
-      <div className="uxa-root light">
+      <div className="uxa-root dark">
         <StyleSheet />
         <LoginScreen onLogin={login} error={authError} />
       </div>
@@ -856,9 +885,19 @@ function Dashboard({ stats, severities, activity, projects, onOpenProject, onNew
 
 /* ============================== PROJECTS ============================== */
 
-function ProjectsView({ projects, onOpen, onNew }) {
+function ProjectsView({ projects, onOpen, onNew, onEdit, onDelete }) {
   const [q, setQ] = useState("");
   const filtered = projects.filter((p) => p.name.toLowerCase().includes(q.toLowerCase()) || p.client.toLowerCase().includes(q.toLowerCase()));
+
+  function handleEdit(e, p) { e.stopPropagation(); onEdit(p); }
+  function handleDelete(e, p) {
+    e.stopPropagation();
+    const screens = p.modules.flatMap((m) => m.screens);
+    const issues = screens.flatMap((s) => s.issues);
+    const msg = `Delete "${p.name}"? This permanently removes its ${p.modules.length} module(s), ${screens.length} screen(s), and ${issues.length} issue(s). This can't be undone.`;
+    if (window.confirm(msg)) onDelete(p.id);
+  }
+
   return (
     <div className="uxa-panel">
       <div className="uxa-panel-head">
@@ -868,7 +907,7 @@ function ProjectsView({ projects, onOpen, onNew }) {
       <table className="uxa-table">
         <thead>
           <tr>
-            <th>Project Name</th><th>Client</th><th>Status</th><th>Total Screens</th><th>Total Issues</th><th>Last Updated</th>
+            <th>Project Name</th><th>Client</th><th>Status</th><th>Total Screens</th><th>Total Issues</th><th>Last Updated</th><th></th>
           </tr>
         </thead>
         <tbody>
@@ -883,23 +922,29 @@ function ProjectsView({ projects, onOpen, onNew }) {
                 <td>{screens.length}</td>
                 <td>{issues.length}</td>
                 <td className="uxa-text-muted">{relTime(p.updatedAt)}</td>
+                <td className="uxa-row-actions">
+                  <button title="Edit project" onClick={(e) => handleEdit(e, p)}><Pencil size={13} /></button>
+                  <button title="Delete project" onClick={(e) => handleDelete(e, p)}><Trash2 size={13} /></button>
+                </td>
               </tr>
             );
           })}
-          {filtered.length === 0 && <tr><td colSpan={6} className="uxa-empty">No projects match "{q}".</td></tr>}
+          {filtered.length === 0 && <tr><td colSpan={7} className="uxa-empty">No projects match "{q}".</td></tr>}
         </tbody>
       </table>
     </div>
   );
 }
 
-function NewProjectModal({ onClose, onCreate }) {
-  const [name, setName] = useState("");
-  const [client, setClient] = useState("");
+function NewProjectModal({ project, onClose, onCreate }) {
+  const isEdit = !!project;
+  const [name, setName] = useState(project?.name || "");
+  const [client, setClient] = useState(project?.client || "");
+  const [status, setStatus] = useState(project?.status || "Draft");
   return (
     <div className="uxa-modal-overlay" onClick={onClose}>
       <div className="uxa-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="uxa-modal-head"><h3>New project</h3><button onClick={onClose}><X size={16} /></button></div>
+        <div className="uxa-modal-head"><h3>{isEdit ? "Edit project" : "New project"}</h3><button onClick={onClose}><X size={16} /></button></div>
         <div className="uxa-form-field">
           <label>Project name *</label>
           <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Acme Onboarding Audit" />
@@ -908,9 +953,15 @@ function NewProjectModal({ onClose, onCreate }) {
           <label>Client</label>
           <input value={client} onChange={(e) => setClient(e.target.value)} placeholder="e.g. Acme Corp" />
         </div>
+        <div className="uxa-form-field">
+          <label>Status</label>
+          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option>Draft</option><option>In Progress</option><option>Completed</option><option>Archived</option>
+          </select>
+        </div>
         <div className="uxa-modal-actions">
           <button className="uxa-btn" onClick={onClose}>Cancel</button>
-          <button className="uxa-btn primary" disabled={!name.trim()} onClick={() => onCreate(name.trim(), client.trim() || "—")}>Create project</button>
+          <button className="uxa-btn primary" disabled={!name.trim()} onClick={() => onCreate(name.trim(), client.trim() || "—", status)}>{isEdit ? "Save changes" : "Create project"}</button>
         </div>
       </div>
     </div>
@@ -931,6 +982,7 @@ function AuditWorkspace({ project, projects, activeScreenId, setActiveScreenId, 
   const [editingScreenId, setEditingScreenId] = useState(null);
   const [editScreenValue, setEditScreenValue] = useState("");
   const [importOpen, setImportOpen] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(true);
 
   useEffect(() => { setExpanded(new Set(project?.modules?.map((m) => m.id) || [])); }, [project?.id]);
 
@@ -971,7 +1023,9 @@ function AuditWorkspace({ project, projects, activeScreenId, setActiveScreenId, 
   }
 
   return (
-    <div className="uxa-workspace">
+    <>
+      <ProjectSummaryPanel project={project} screenTypes={screenTypes} severities={severities} open={summaryOpen} setOpen={setSummaryOpen} />
+      <div className="uxa-workspace">
       <aside className="uxa-tree">
         <div className="uxa-tree-head">
           <span>Modules</span>
@@ -1071,6 +1125,64 @@ function AuditWorkspace({ project, projects, activeScreenId, setActiveScreenId, 
           onClose={() => setImportOpen(false)}
           onImport={(parsed, options) => { importIntoProject(project.id, parsed, options); setImportOpen(false); }}
         />
+      )}
+      </div>
+    </>
+  );
+}
+
+function ProjectSummaryPanel({ project, screenTypes, severities, open, setOpen }) {
+  const screens = project.modules.flatMap((m) => m.screens);
+  const issues = screens.flatMap((s) => s.issues);
+  const uxIssues = issues.filter((i) => i.auditType === "UX").length;
+  const uiIssues = issues.filter((i) => i.auditType === "UI").length;
+  const completed = screens.filter((s) => s.issues.length > 0).length;
+  const progress = screens.length ? Math.round((completed / screens.length) * 100) : 0;
+  const totalMinutes = screens.reduce((sum, s) => sum + estimateMinutes(s.type, screenTypes), 0);
+  const totalHours = (totalMinutes / 60).toFixed(1);
+
+  return (
+    <div className="uxa-panel uxa-project-summary">
+      <button className="uxa-project-summary-head" onClick={() => setOpen((v) => !v)}>
+        <div className="uxa-project-summary-title">
+          {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+          <h3>Project Summary</h3>
+        </div>
+        <div className="uxa-project-summary-glance">
+          <span><Clock size={12} /> {totalHours}h estimated</span>
+          <span>{screens.length} screens</span>
+          <span>{issues.length} issues</span>
+          <span>{progress}% complete</span>
+        </div>
+      </button>
+      {open && (
+        <div className="uxa-project-summary-body">
+          <div className="uxa-project-summary-details">
+            <div><span>Client</span><strong>{project.client}</strong></div>
+            <div><span>Status</span><strong>{project.status}</strong></div>
+            <div><span>Last updated</span><strong>{relTime(project.updatedAt)}</strong></div>
+            <div><span>Modules</span><strong>{project.modules.length}</strong></div>
+          </div>
+          <div className="uxa-project-stats">
+            <div><strong>{screens.length}</strong><span>Screens</span></div>
+            <div><strong>{issues.length}</strong><span>Total issues</span></div>
+            <div><strong>{uxIssues}</strong><span>UX issues</span></div>
+            <div><strong>{uiIssues}</strong><span>UI issues</span></div>
+            <div><strong>{totalHours}h</strong><span>Est. hours</span></div>
+          </div>
+          <div className="uxa-summary-row-group">
+            {severities.map((sv) => (
+              <div className="uxa-summary-row" key={sv.id}>
+                <span>{sv.icon} {sv.label}</span>
+                <strong>{issues.filter((i) => i.severity === sv.id).length}</strong>
+              </div>
+            ))}
+          </div>
+          <div className="uxa-progress-row" style={{ marginTop: 4 }}>
+            <div className="uxa-progress-track"><div className="uxa-progress-fill" style={{ width: `${progress}%` }} /></div>
+            <span>{progress}% ({completed}/{screens.length} screens)</span>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1903,7 +2015,7 @@ function ExportCenter({ ctx, projects, screensFlat, issuesFlat, severities, area
     if (formats.size === 0) return;
     setStep("progress");
     setProgress({ pct: 0, label: PROGRESS_STEPS[0] });
-    const model = buildReportModel(matched, scopedProjects, stats, severities, branding, template, include);
+    const model = buildReportModel(matched, scopedProjects, stats, severities, branding, template, include, screenTypes);
     const built = [];
     for (const fmt of formats) {
       if (fmt === "csv") built.push(buildCSVFile(matched, include, branding));
@@ -2113,7 +2225,7 @@ function ExportCenter({ ctx, projects, screensFlat, issuesFlat, severities, area
 
               <div className="uxa-export-preview">
                 <div className="uxa-preview-label"><Info size={12} /> Live cover preview</div>
-                <PDFPreview branding={branding} template={template} matched={matched} stats={stats} />
+                <PDFPreview branding={branding} template={template} matched={matched} stats={stats} screenTypes={screenTypes} />
                 <div className="uxa-preview-meta">
                   <span>{matched.issues.length} issues</span><span>·</span><span>{matched.screens.length} screens</span><span>·</span><span>{PDF_TEMPLATES.find((t) => t.id === template)?.label}</span>
                 </div>
@@ -2183,7 +2295,8 @@ function ExportSection({ title, sub, children }) {
   );
 }
 
-function PDFPreview({ branding, template, matched, stats }) {
+function PDFPreview({ branding, template, matched, stats, screenTypes }) {
+  const scopedHours = ((matched.screens.reduce((sum, s) => sum + estimateMinutes(s.type, screenTypes || []), 0)) / 60).toFixed(1);
   const tpl = PDF_TEMPLATES.find((t) => t.id === template);
   return (
     <div className="uxa-cover-mock" style={{ "--tcolor": tpl?.color || "#3B5BDB" }}>
@@ -2199,7 +2312,7 @@ function PDFPreview({ branding, template, matched, stats }) {
       <div className="uxa-cover-stats">
         <div><strong>{matched.screens.length}</strong><span>Screens</span></div>
         <div><strong>{matched.issues.length}</strong><span>Issues</span></div>
-        <div><strong>{stats.estHours}h</strong><span>Est. effort</span></div>
+        <div><strong>{scopedHours}h</strong><span>Est. effort</span></div>
       </div>
       <div className="uxa-cover-foot">
         <span>{branding.preparedBy ? `Prepared by ${branding.preparedBy}` : "Prepared by —"}</span>
@@ -2211,12 +2324,13 @@ function PDFPreview({ branding, template, matched, stats }) {
 
 /* ---- report model + file builders ---- */
 
-function buildReportModel(matched, scopedProjects, stats, severities, branding, template, include) {
+function buildReportModel(matched, scopedProjects, stats, severities, branding, template, include, screenTypes) {
   const bySev = severities.map((sv) => ({ ...sv, count: matched.issues.filter((i) => i.severity === sv.id).length }));
   const byModule = {};
   matched.issues.forEach((i) => { byModule[i.moduleName] = (byModule[i.moduleName] || 0) + 1; });
   const screensById = {};
   matched.screens.forEach((s) => { screensById[s.id] = { ...s, issues: matched.issues.filter((i) => i.screenId === s.id) }; });
+  const scopedMinutes = matched.screens.reduce((sum, s) => sum + estimateMinutes(s.type, screenTypes || []), 0);
   return {
     branding, template, generatedAt: new Date().toISOString(),
     projects: scopedProjects.map((p) => p.name),
@@ -2227,7 +2341,7 @@ function buildReportModel(matched, scopedProjects, stats, severities, branding, 
     high: bySev.find((s) => s.id === "high")?.count || 0,
     totalIssues: matched.issues.length,
     totalScreens: matched.screens.length,
-    estHours: stats.estHours,
+    estHours: (scopedMinutes / 60).toFixed(1),
   };
 }
 
@@ -2619,6 +2733,8 @@ function StyleSheet() {
       .uxa-pill { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--primary-soft); color: var(--primary); }
       .uxa-pill.status-Draft { background: #F1F5F9; color: #64748B; }
       .uxa-pill.status-InProgress { background: #DBEAFE; color: #2563EB; }
+      .uxa-pill.status-Completed { background: #DCFCE7; color: #15803D; }
+      .uxa-pill.status-Archived { background: #F1F5F9; color: #94A3B8; }
       .uxa-pill.status-Open { background: #FEF3C7; color: #B45309; }
       .uxa-pill.status-InReview { background: #E0E7FF; color: #4338CA; }
       .uxa-pill.status-Resolved { background: #DCFCE7; color: #15803D; }
@@ -2655,6 +2771,22 @@ function StyleSheet() {
       .uxa-settings-tabs button.active { color: var(--primary); border-color: var(--primary); }
 
       /* Workspace */
+      .uxa-project-summary { padding: 0; overflow: hidden; }
+      .uxa-project-summary-head { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border: none; background: transparent; text-align: left; flex-wrap: wrap; }
+      .uxa-project-summary-title { display: flex; align-items: center; gap: 6px; }
+      .uxa-project-summary-title h3 { margin: 0; }
+      .uxa-project-summary-glance { display: flex; gap: 14px; font-size: 11.5px; color: var(--text-muted); }
+      .uxa-project-summary-glance span { display: flex; align-items: center; gap: 4px; }
+      .uxa-project-summary-body { padding: 0 18px 18px; border-top: 1px solid var(--border); padding-top: 14px; }
+      .uxa-project-summary-details { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+      .uxa-project-summary-details > div { display: flex; flex-direction: column; gap: 2px; }
+      .uxa-project-summary-details span { font-size: 10.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.03em; }
+      .uxa-project-summary-details strong { font-size: 13px; }
+      .uxa-project-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 14px; }
+      .uxa-project-stats > div { text-align: center; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 6px; }
+      .uxa-project-stats strong { display: block; font-size: 18px; }
+      .uxa-project-stats span { font-size: 10px; color: var(--text-muted); }
+      .uxa-summary-row-group { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px 16px; margin-bottom: 6px; }
       .uxa-workspace { display: grid; grid-template-columns: 240px 1fr; gap: 14px; height: 100%; }
       .uxa-tree { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; height: fit-content; box-shadow: var(--shadow); }
       .uxa-tree-head { display: flex; align-items: center; justify-content: space-between; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-faint); padding: 4px 6px 8px; }
