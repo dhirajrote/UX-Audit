@@ -86,4 +86,14 @@ export function requireAuth(req, res) {
   return session;
 }
 
+export function requireAdmin(req, res) {
+  const session = requireAuth(req, res);
+  if (!session) return null; // requireAuth already sent the 401
+  if (!session.a) {
+    res.status(403).json({ error: "Admin access required." });
+    return null;
+  }
+  return session;
+}
+
 export { COOKIE_NAME };

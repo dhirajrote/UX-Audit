@@ -69,6 +69,7 @@ Push to GitHub (already done) → import the repo at [vercel.com/new](https://ve
 - `index.html` — HTML shell.
 - `api/auth.js` — login / logout / session-check (checks the admin account first, then the `users` table).
 - `api/register.js` — creates a new user account (bcrypt-hashed password) and logs them in.
+- `api/users.js` — admin-only: list registered accounts, reset a user's password, or delete an account (and their data).
 - `api/_auth.js` — shared session signing/verification helpers (HMAC-signed cookie, no extra dependency).
 - `api/ai.js` — serverless function proxying AI generation requests to Anthropic (requires a valid session, any account).
 - `api/state.js` — serverless function reading/writing app state to Supabase, scoped to the caller's own session (`session.uid`) — never a client-supplied id.
@@ -79,4 +80,4 @@ Push to GitHub (already done) → import the repo at [vercel.com/new](https://ve
 
 - The frontend calls `/api/auth`, `/api/ai`, and `/api/state` first, and falls back to skipping the login gate (with demo seed data) plus a direct (keyless) Anthropic call if those routes aren't reachable at all — so this same `src/App.jsx` still works if you paste it back into a Claude artifact without a backend, just without login, multi-user data isolation, persistence across sessions, or a hidden API key. Real backend deployments start every new account with zero projects, not the demo data.
 - PDF/DOCX exports render as styled HTML (print-to-PDF for PDF, Word-compatible HTML for DOCX). PPTX exports as an HTML slide deck rather than a binary `.pptx`, since no pptx-writing library is used. See in-app labels for details.
-- Registration is open to anyone who reaches `/api/register` — there's no invite code or admin approval step. If you want to lock that down later (invite-only, email verification, admin approval queue), that's a reasonable next addition.
+- Registration is open to anyone who reaches `/api/register` — there's no invite code or admin approval step. The admin account has a **Users** screen (sidebar, admin-only) to see everyone who's registered, reset a forgotten password on their behalf, or delete an account entirely (which also removes their saved audit data). There's still no self-service "forgot password" flow for users themselves — an admin has to do it for them.

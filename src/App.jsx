@@ -8,7 +8,7 @@ import {
   TrendingUp, CircleAlert, CheckCircle2, ChevronsUpDown, GripVertical,
   FileText, FileSpreadsheet, FileType2, Presentation, Braces, Building2,
   Link2, Mail, RotateCcw, ExternalLink, Printer, CheckSquare, Square,
-  CalendarRange, UserCircle2, Image as ImageIcon, ArrowLeft, Info, LogOut, Lock, Eye, EyeOff, Upload, FileUp, ListChecks
+  CalendarRange, UserCircle2, Image as ImageIcon, ArrowLeft, Info, LogOut, Lock, Eye, EyeOff, Upload, FileUp, ListChecks, Users2, KeyRound, ShieldAlert
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -519,6 +519,9 @@ function AppShell({ username, onLogout, isAdmin, seedDemo }) {
               <ReportsView projects={projects} issuesFlat={issuesFlat} screensFlat={screensFlat} severities={severities} showToast={showToast}
                 onExport={(filters) => openExport({ scope: "filteredResults", presetFilters: filters })} />
             )}
+            {view === "users" && isAdmin && (
+              <UsersView showToast={showToast} />
+            )}
           </div>
         </div>
       </div>
@@ -815,6 +818,7 @@ function Sidebar({ view, setView, theme, setTheme, setCommandOpen, username, onL
     { id: "workspace", label: "Audit Workspace", icon: ClipboardList },
     { id: "reports", label: "Reports", icon: FileBarChart },
     { id: "settings", label: "Settings", icon: SettingsIcon },
+    ...(isAdmin ? [{ id: "users", label: "Users", icon: Users2 }] : []),
   ];
   return (
     <aside className="uxa-sidebar">
@@ -853,12 +857,13 @@ function Sidebar({ view, setView, theme, setTheme, setCommandOpen, username, onL
 function TopBar({ view, activeProject, setCommandOpen, onNewProject }) {
   const titles = {
     dashboard: "Dashboard", projects: "Projects", workspace: activeProject ? activeProject.name : "Audit Workspace",
-    settings: "Settings", reports: "Reports",
+    settings: "Settings", reports: "Reports", users: "Users",
   };
   const subtitles = {
     dashboard: "Audit program overview across all projects", projects: "All client audit engagements",
     workspace: activeProject ? `${activeProject.client} · ${activeProject.status}` : "Select a project to begin",
     settings: "Configure master data used across audits", reports: "Generate and export audit reports",
+    users: "Manage registered accounts (admin only)",
   };
   return (
     <header className="uxa-topbar">
@@ -1896,6 +1901,131 @@ function ReportsView({ projects, issuesFlat, screensFlat, severities, showToast,
 }
 
 /* ============================== COMMAND PALETTE ============================== */
+
+/* ============================== USERS (ADMIN) ============================== */
+
+function UsersView({ showToast }) {
+  const [users, setUsers] = useState(null); // null = loading
+  const [error, setError] = useState("");
+  const [resetTarget, setResetTarget] = useState(null); // user object
+  const [q, setQ] = useState("");
+
+  const load = useCallback(async () => {
+    setError("");
+    try {
+      const res = await fetch("/api/users");
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Could not load users."); setUsers([]); return; }
+      setUsers(data.users || []);
+    } catch (e) {
+      setError("Could not reach the server.");
+      setUsers([]);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function deleteUser(u) {
+    if (!window.confirm(`Delete account "${u.username}"? This permanently removes their login and all of their saved audit data. This can't be undone.`)) return;
+    try {
+      const res = await fetch(`/api/users?id=${encodeURIComponent(u.id)}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error || "Could not delete user"); return; }
+      showToast(`Deleted ${u.username}`, "check");
+      load();
+    } catch (e) { showToast("Could not reach the server"); }
+  }
+
+  const filtered = (users || []).filter((u) => u.username.toLowerCase().includes(q.toLowerCase()));
+
+  return (
+    <div className="uxa-panel">
+      <div className="uxa-panel-head">
+        <div className="uxa-inline-search"><Search size={14} /><input placeholder="Filter users…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <span className="uxa-text-muted">{users ? `${users.length} registered account${users.length === 1 ? "" : "s"}` : ""}</span>
+      </div>
+
+      {error && <div className="uxa-login-error" style={{ marginBottom: 12 }}><ShieldAlert size={13} /> {error}</div>}
+
+      <table className="uxa-table">
+        <thead><tr><th>Username</th><th>Created</th><th>Has data</th><th></th></tr></thead>
+        <tbody>
+          {users === null && <tr><td colSpan={4} className="uxa-empty"><Loader2 size={16} className="spin" /></td></tr>}
+          {users !== null && filtered.map((u) => (
+            <tr key={u.id}>
+              <td className="uxa-cell-strong">{u.username}</td>
+              <td className="uxa-text-muted">{relTime(new Date(u.createdAt).getTime())}</td>
+              <td>{u.hasData ? <span className="uxa-pill status-active">Yes</span> : <span className="uxa-pill status-disabled">No</span>}</td>
+              <td className="uxa-row-actions">
+                <button title="Reset password" onClick={() => setResetTarget(u)}><KeyRound size={13} /></button>
+                <button title="Delete account" onClick={() => deleteUser(u)}><Trash2 size={13} /></button>
+              </td>
+            </tr>
+          ))}
+          {users !== null && filtered.length === 0 && <tr><td colSpan={4} className="uxa-empty">No registered accounts{q ? ` match "${q}"` : " yet"}.</td></tr>}
+        </tbody>
+      </table>
+
+      {resetTarget && (
+        <ResetPasswordModal
+          user={resetTarget}
+          onClose={() => setResetTarget(null)}
+          onDone={(msg) => { setResetTarget(null); showToast(msg, "check"); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ResetPasswordModal({ user, onClose, onDone }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    setError("");
+    if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
+    if (password !== confirm) { setError("Passwords don't match."); return; }
+    setBusy(true);
+    try {
+      const res = await fetch("/api/users", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: user.id, newPassword: password }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Could not reset password."); setBusy(false); return; }
+      onDone(`Password reset for ${user.username}`);
+    } catch (e) {
+      setError("Could not reach the server.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="uxa-modal-overlay" onClick={onClose}>
+      <div className="uxa-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="uxa-modal-head"><h3>Reset password for {user.username}</h3><button onClick={onClose}><X size={16} /></button></div>
+        <div className="uxa-form-field">
+          <label>New password</label>
+          <input type="password" autoFocus value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" />
+        </div>
+        <div className="uxa-form-field">
+          <label>Confirm new password</label>
+          <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Re-enter password" />
+        </div>
+        {error && <div className="uxa-login-error"><Lock size={13} /> {error}</div>}
+        <div className="uxa-modal-actions">
+          <button className="uxa-btn" onClick={onClose}>Cancel</button>
+          <button className="uxa-btn primary" disabled={busy || !password || !confirm} onClick={submit}>
+            {busy ? <Loader2 size={14} className="spin" /> : <KeyRound size={14} />} Reset password
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function CommandPalette({ projects, screensFlat, issuesFlat, onClose, onGoto, onOpenScreen }) {
   const [q, setQ] = useState("");
