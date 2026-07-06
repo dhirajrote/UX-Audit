@@ -1,29 +1,31 @@
 // /api/_auth.js
-// Minimal signed-cookie session auth. No extra auth library/dependency —
-// just HMAC-signed, expiring tokens stored in an HttpOnly cookie.
+// Minimal signed-cookie session auth. No extra auth library/dependency for
+// sessions themselves — just HMAC-signed, expiring tokens in an HttpOnly
+// cookie. Password hashing for registered users uses bcryptjs (see
+// api/register.js and api/auth.js).
 //
-// Env vars required (set in Vercel Project Settings -> Environment Variables,
-// or a local .env for `vercel dev`):
-//   AUTH_USERNAME      - the login username
-//   AUTH_PASSWORD      - the login password
-//   SESSION_SECRET     - any long random string, used to sign session tokens
+// Env vars required (Vercel Project Settings -> Environment Variables, or a
+// local .env for `vercel dev`):
+//   SESSION_SECRET       - any long random string, used to sign session tokens (required, private)
+//   AUTH_USERNAME        - optional override for the built-in admin username (defaults to "dheerajrote")
+//   AUTH_PASSWORD        - optional override for the built-in admin password (defaults to "Qwerty123!@#")
 //
-// This is single-user, basic auth suitable for a personal/internal tool.
-// It is NOT a substitute for a real identity system if you ever need
-// multiple users with separate accounts (Supabase Auth would be the
-// natural upgrade path for that).
+// Session payload: { uid, u (username), a (isAdmin), exp }
+// `uid` is what api/state.js uses to scope each user's data — the admin
+// account always uses uid "admin"; registered users use their users.id.
 
 import crypto from "node:crypto";
 
 const COOKIE_NAME = "auditlane_session";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+export const ADMIN_UID = "admin";
 
 function base64url(input) {
   return Buffer.from(input).toString("base64url");
 }
 
-export function signSession(username, secret) {
-  const payload = { u: username, exp: Date.now() + SESSION_TTL_MS };
+export function signSession({ uid, username, isAdmin }, secret) {
+  const payload = { uid, u: username, a: !!isAdmin, exp: Date.now() + SESSION_TTL_MS };
   const data = base64url(JSON.stringify(payload));
   const sig = crypto.createHmac("sha256", secret).update(data).digest("base64url");
   return `${data}.${sig}`;

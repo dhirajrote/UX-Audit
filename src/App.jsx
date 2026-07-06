@@ -196,7 +196,7 @@ async function callClaude(prompt, system) {
 /* ---- persistence helpers: backend (Supabase via /api/state) with graceful fallback ---- */
 async function loadAppState() {
   try {
-    const res = await fetch("/api/state?id=default");
+    const res = await fetch("/api/state");
     if (res.ok) {
       const { data } = await res.json();
       if (data) return data;
@@ -215,7 +215,7 @@ async function loadAppState() {
 }
 async function saveAppState(state) {
   try {
-    const res = await fetch("/api/state?id=default", {
+    const res = await fetch("/api/state", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(state),
@@ -228,9 +228,9 @@ async function saveAppState(state) {
 
 /* ============================== APP ROOT ============================== */
 
-function AppShell({ username, onLogout }) {
+function AppShell({ username, onLogout, isAdmin, seedDemo }) {
   const [theme, setTheme] = useState("dark");
-  const [projects, setProjects] = useState(() => makeSeedProjects());
+  const [projects, setProjects] = useState(() => (seedDemo ? makeSeedProjects() : []));
   const [screenTypes, setScreenTypes] = useState(SCREEN_TYPE_DEFAULTS);
   const [areas, setAreas] = useState(AREA_DEFAULTS);
   const [severities, setSeverities] = useState(SEVERITY_DEFAULTS);
@@ -476,7 +476,7 @@ function AppShell({ username, onLogout }) {
     <div className={`uxa-root ${theme}`}>
       <StyleSheet />
       <div className="uxa-shell">
-        <Sidebar view={view} setView={setView} theme={theme} setTheme={setTheme} setCommandOpen={setCommandOpen} username={username} onLogout={onLogout} />
+        <Sidebar view={view} setView={setView} theme={theme} setTheme={setTheme} setCommandOpen={setCommandOpen} username={username} onLogout={onLogout} isAdmin={isAdmin} />
         <div className="uxa-main">
           <TopBar
             view={view}
@@ -591,8 +591,11 @@ function AppShell({ username, onLogout }) {
 
 export default function App() {
   const [authState, setAuthState] = useState("checking"); // checking | required | authenticated
+  const [authMode, setAuthMode] = useState("login"); // login | register
   const [username, setUsername] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [authError, setAuthError] = useState("");
+  const [noBackend, setNoBackend] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -602,17 +605,20 @@ export default function App() {
           const data = await res.json();
           if (data.authenticated) {
             setUsername(data.username);
+            setIsAdmin(!!data.isAdmin);
             setAuthState("authenticated");
           } else {
             setAuthState("required");
           }
         } else {
           // /api/auth exists but errored unexpectedly — don't lock the user out
+          setNoBackend(true);
           setAuthState("authenticated");
         }
       } catch (e) {
         // No backend at all (e.g. previewing this file as a standalone Claude
         // artifact) — skip the login gate rather than dead-ending the app.
+        setNoBackend(true);
         setAuthState("authenticated");
       }
     })();
@@ -629,6 +635,7 @@ export default function App() {
       const data = await res.json();
       if (res.ok && data.ok) {
         setUsername(data.username);
+        setIsAdmin(!!data.isAdmin);
         setAuthState("authenticated");
         return true;
       }
@@ -640,10 +647,35 @@ export default function App() {
     }
   }
 
+  async function register(u, p) {
+    setAuthError("");
+    try {
+      const res = await fetch("/api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: u, password: p }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setUsername(data.username);
+        setIsAdmin(false);
+        setAuthState("authenticated");
+        return true;
+      }
+      setAuthError(data.error || "Could not create that account.");
+      return false;
+    } catch (e) {
+      setAuthError("Could not reach the server. Is the backend running?");
+      return false;
+    }
+  }
+
   async function logout() {
     try { await fetch("/api/auth", { method: "DELETE" }); } catch (e) { /* ignore */ }
     setUsername(null);
+    setIsAdmin(false);
     setAuthState("required");
+    setAuthMode("login");
   }
 
   if (authState === "checking") {
@@ -659,15 +691,19 @@ export default function App() {
     return (
       <div className="uxa-root dark">
         <StyleSheet />
-        <LoginScreen onLogin={login} error={authError} />
+        {authMode === "login" ? (
+          <LoginScreen onLogin={login} error={authError} onSwitch={() => { setAuthError(""); setAuthMode("register"); }} />
+        ) : (
+          <RegisterScreen onRegister={register} error={authError} onSwitch={() => { setAuthError(""); setAuthMode("login"); }} />
+        )}
       </div>
     );
   }
 
-  return <AppShell username={username} onLogout={username ? logout : null} />;
+  return <AppShell username={username} isAdmin={isAdmin} onLogout={username ? logout : null} seedDemo={noBackend} />;
 }
 
-function LoginScreen({ onLogin, error }) {
+function LoginScreen({ onLogin, error, onSwitch }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -705,6 +741,66 @@ function LoginScreen({ onLogin, error }) {
         <button className="uxa-btn primary full" type="submit" disabled={busy || !username.trim() || !password}>
           {busy ? <Loader2 size={14} className="spin" /> : <Lock size={14} />} Sign in
         </button>
+
+        <button type="button" className="uxa-auth-switch" onClick={onSwitch}>
+          Don't have an account? <span>Create one</span>
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function RegisterScreen({ onRegister, error, onSwitch }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [localError, setLocalError] = useState("");
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setLocalError("");
+    if (!username.trim() || !password) return;
+    if (password.length < 8) { setLocalError("Password must be at least 8 characters."); return; }
+    if (password !== confirm) { setLocalError("Passwords don't match."); return; }
+    setBusy(true);
+    await onRegister(username.trim(), password);
+    setBusy(false);
+  }
+
+  return (
+    <div className="uxa-login-wrap">
+      <form className="uxa-login-card" onSubmit={handleSubmit}>
+        <div className="uxa-brand-mark lg"><Layers size={20} strokeWidth={2.5} /></div>
+        <h2>Create your Auditlane account</h2>
+        <p>Your projects stay private to your login</p>
+
+        <div className="uxa-form-field">
+          <label>Username</label>
+          <input autoFocus value={username} onChange={(e) => setUsername(e.target.value)} placeholder="3-32 characters" autoComplete="username" />
+        </div>
+        <div className="uxa-form-field">
+          <label>Password</label>
+          <div className="uxa-password-row">
+            <input type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" autoComplete="new-password" />
+            <button type="button" onClick={() => setShowPassword((v) => !v)}>{showPassword ? <EyeOff size={14} /> : <Eye size={14} />}</button>
+          </div>
+        </div>
+        <div className="uxa-form-field">
+          <label>Confirm password</label>
+          <input type={showPassword ? "text" : "password"} value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Re-enter password" autoComplete="new-password" />
+        </div>
+
+        {(localError || error) && <div className="uxa-login-error"><Lock size={13} /> {localError || error}</div>}
+
+        <button className="uxa-btn primary full" type="submit" disabled={busy || !username.trim() || !password || !confirm}>
+          {busy ? <Loader2 size={14} className="spin" /> : <UserCircle2 size={14} />} Create account
+        </button>
+
+        <button type="button" className="uxa-auth-switch" onClick={onSwitch}>
+          Already have an account? <span>Sign in</span>
+        </button>
       </form>
     </div>
   );
@@ -712,7 +808,7 @@ function LoginScreen({ onLogin, error }) {
 
 /* ============================== SIDEBAR / TOPBAR ============================== */
 
-function Sidebar({ view, setView, theme, setTheme, setCommandOpen, username, onLogout }) {
+function Sidebar({ view, setView, theme, setTheme, setCommandOpen, username, onLogout, isAdmin }) {
   const items = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { id: "projects", label: "Projects", icon: FolderKanban },
@@ -738,7 +834,7 @@ function Sidebar({ view, setView, theme, setTheme, setCommandOpen, username, onL
         {username && onLogout && (
           <div className="uxa-user-row">
             <div className="uxa-user-avatar">{username.slice(0, 1).toUpperCase()}</div>
-            <span>{username}</span>
+            <span>{username}{isAdmin ? <em className="uxa-admin-badge">Admin</em> : null}</span>
             <button title="Log out" onClick={onLogout}><LogOut size={13} /></button>
           </div>
         )}
@@ -2905,6 +3001,9 @@ function StyleSheet() {
       .uxa-password-row button { border: none; background: transparent; color: var(--text-faint); padding: 0 10px; }
       .uxa-login-error { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #DC2626; background: #FEE2E2; border-radius: var(--radius-sm); padding: 8px 10px; margin-bottom: 12px; width: 100%; }
       .uxa-login-card .uxa-btn.full { margin-top: 4px; }
+      .uxa-auth-switch { border: none; background: transparent; color: var(--text-muted); font-size: 11.5px; margin-top: 12px; }
+      .uxa-auth-switch span { color: var(--primary); font-weight: 600; }
+      .uxa-admin-badge { font-style: normal; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--primary); background: var(--primary-soft); border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
       .uxa-user-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-sm); background: var(--bg); border: 1px solid var(--border); font-size: 12px; font-weight: 600; }
       .uxa-user-avatar { width: 20px; height: 20px; border-radius: 50%; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 10px; flex-shrink: 0; }
       .uxa-user-row span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

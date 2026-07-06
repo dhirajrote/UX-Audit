@@ -1,10 +1,14 @@
 // /api/state.js
-// Vercel serverless function: reads/writes the whole app state (projects,
-// screen types, areas, severities, theme) as a single JSON document in
-// Supabase Postgres. Mirrors the shape previously stored via window.storage.
+// Vercel serverless function: reads/writes one user's whole app state
+// (projects, screen types, areas, severities, theme) as a single JSON
+// document in Supabase Postgres.
 //
-// GET  /api/state?id=default        -> { data: {...} } or { data: null }
-// PUT  /api/state?id=default        -> body: {...}  -> upserts, returns { ok: true }
+// The row id is ALWAYS derived from the caller's own authenticated session
+// (session.uid) — never from a client-supplied id/query param — so one
+// account can never read or write another account's data.
+//
+// GET  /api/state   -> { data: {...} } or { data: null }
+// PUT  /api/state   -> body: {...}  -> upserts, returns { ok: true }
 
 import { getSupabase } from "./_supabase.js";
 import { requireAuth } from "./_auth.js";
@@ -12,9 +16,10 @@ import { requireAuth } from "./_auth.js";
 const TABLE = "app_state";
 
 export default async function handler(req, res) {
-  if (!requireAuth(req, res)) return; // requireAuth already sent the 401 response
+  const session = requireAuth(req, res);
+  if (!session) return; // requireAuth already sent the 401 response
 
-  const id = (req.query && req.query.id) || "default";
+  const id = session.uid;
 
   let supabase;
   try {
