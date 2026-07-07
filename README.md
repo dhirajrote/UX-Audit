@@ -2,14 +2,15 @@
 
 A single-file React application for running structured UX/UI audits: project workspaces, module/screen trees, issue tracking with AI-assisted recommendations, severity/area configuration, reporting, and a full multi-format Export Center (PDF, XLSX, CSV, DOCX, PPTX, JSON).
 
-Backed by a real backend: Vercel serverless functions for an AI proxy (keeps your Anthropic key secret) and Supabase Postgres for persistence, plus multi-user login with open registration — every account (including newly registered ones) gets its own completely private set of projects. The Audit Workspace also supports bulk import (paste an outline or upload a CSV), inline rename/delete for modules and screens, project edit/delete, and a per-project summary panel.
+Backed by a real backend: Vercel serverless functions for an AI proxy (keeps your Anthropic key secret) and Supabase Postgres for persistence, plus multi-user login with open registration — every account (including newly registered ones) gets its own completely private set of projects. The Audit Workspace also supports bulk import (paste an outline or upload a CSV), inline rename/delete for modules and screens, project edit/delete, and a per-project summary panel. There's also a full subscription/plan system: free trial, paid, and enterprise packages, with admin tooling to manage every user's plan, trial, and payment status.
 
-## 1. Set up Supabase (persistence + accounts)
+## 1. Set up Supabase (persistence + accounts + billing)
 
 1. Create a free project at [supabase.com](https://supabase.com).
 2. Open **SQL Editor → New query**, paste the contents of [`supabase/schema.sql`](./supabase/schema.sql), and run it. This creates:
    - `app_state` — one row per user, storing their whole app state (projects, screens, issues, config) as JSON.
    - `users` — registered accounts (username + bcrypt password hash). The built-in admin account is *not* a row here — see below.
+   - `packages`, `subscriptions`, `subscription_history`, `payments`, `notifications`, `sales_requests` — the billing system (see section 4). The script also seeds the 3 default packages (Free Trial, Individual, Team/Enterprise).
 3. Go to **Project Settings → API** and copy:
    - **Project URL** → `SUPABASE_URL`
    - **service_role key** (not the `anon` key — keep this one secret) → `SUPABASE_SERVICE_ROLE_KEY`
@@ -37,13 +38,26 @@ You still need one required, private env var:
 
 **If you were already running this app before registration was added** (i.e. you have existing data saved under `app_state.id = 'default'`), run the one-time migration at the bottom of `supabase/schema.sql` to move it onto the admin account's new id (`'admin'`) so you don't lose it.
 
-## 4. Configure environment variables
+## 4. Subscriptions & billing
+
+There's no payment gateway connected (Stripe, etc.) — by design, for now. Instead:
+
+- Every new registration is automatically put on the **Free Trial** package (15 days by default) — this happens at signup, mirrored from the package marked `is_default` in the `packages` table.
+- Users self-serve between **Free Trial** and **Individual** from the **Billing** page in the sidebar — choosing "Individual" applies immediately and logs a `pending` payment for the admin to confirm once they've actually collected payment (bank transfer, invoice, whatever you use outside the app).
+- **Team / Enterprise** has no visible price — users hit "Contact Sales", which files a request under the admin's **Subscriptions → Sales Requests** tab. The admin manually assigns the Enterprise package (or any package) to that user from **Subscriptions → All Subscriptions → Manage**.
+- The admin's **Subscriptions** screen can, per user: assign/change their package, extend or end a trial, extend a paid period, activate/deactivate, and record a payment (paid/pending/failed) — this is the "admin manually marks paid plans" flow. The **Packages** screen is full CRUD for the packages themselves (a package can't be deleted while users are on it — archive it instead by setting Status to Inactive). **Overview** has the analytics: trial/paid counts, conversion rate, revenue, package-wise subscriber counts, expiring subscriptions, and recent upgrades/downgrades.
+- Users get a slim in-app banner when their trial has ≤3 days left or has expired, and a notification bell (top right) for trial/renewal/payment/package-change events. There's no email delivery — everything is in-app only.
+- The admin account itself isn't billed — it's exempt from all of this.
+
+If you want real payment collection later, Stripe is the natural next step: Checkout/Billing Portal for the user-facing flow, and a webhook that calls the same `assign_package` / `record_payment` logic already in `api/admin/subscriptions.js` instead of the admin doing it by hand.
+
+## 5. Configure environment variables
 
 Copy `.env.example` to `.env`. At minimum you need `SESSION_SECRET` plus the Supabase and Anthropic values from steps 1–2; `AUTH_USERNAME`/`AUTH_PASSWORD` are optional overrides. Locally, `vercel dev` reads `.env` automatically. On Vercel, add the same variables under **Project → Settings → Environment Variables**.
 
 **Never commit `.env`** — it's already in `.gitignore`. (`.env.example` is committed but must only ever contain placeholders — never paste real values into it.)
 
-## 5. Run it
+## 6. Run it
 
 ```bash
 npm install
@@ -58,7 +72,7 @@ npm run dev
 
 `vercel dev` will print a local URL (typically `http://localhost:3000`) serving both the app and `/api/ai`, `/api/state`, `/api/auth`, `/api/register`.
 
-## 6. Deploy
+## 7. Deploy
 
 Push to GitHub (already done) → import the repo at [vercel.com/new](https://vercel.com/new) → add all 6 environment variables in the Vercel dashboard → deploy. Vercel auto-detects the Vite frontend and the `/api` functions.
 
@@ -75,7 +89,14 @@ Push to GitHub (already done) → import the repo at [vercel.com/new](https://ve
 - `api/ai.js` — serverless function proxying AI generation requests to Anthropic (requires a valid session, any account).
 - `api/state.js` — serverless function reading/writing app state to Supabase, scoped to the caller's own session (`session.uid`) — never a client-supplied id.
 - `api/_supabase.js` — shared Supabase client (service role, server-side only).
-- `supabase/schema.sql` — one-time SQL to create the `app_state` and `users` tables, plus a migration for pre-existing single-user data.
+- `api/subscription.js` — the caller's own subscription (view + self-service change plan/cancel/reactivate/contact sales).
+- `api/packages.js` — package CRUD (GET is any authenticated user; POST/PUT/DELETE are admin-only).
+- `api/admin/subscriptions.js` — admin-only: list/inspect every user's subscription, assign packages, extend/end trials, activate/deactivate, extend periods, record payments.
+- `api/admin/analytics.js` — admin-only: subscription analytics (trial/paid counts, conversion rate, revenue, expiring subscriptions, recent upgrades/downgrades).
+- `api/admin/sales-requests.js` — admin-only: view and update "Contact Sales" submissions.
+- `api/notifications.js` — the caller's own in-app notifications (trial/renewal/payment/package-change events).
+- `api/_billing.js` — shared helpers (trial auto-assignment, status reconciliation, notification creation).
+- `supabase/schema.sql` — one-time SQL to create all tables (`app_state`, `users`, `packages`, `subscriptions`, `subscription_history`, `payments`, `notifications`, `sales_requests`), seed the 3 default packages, plus a migration for pre-existing single-user data.
 
 ## Notes
 

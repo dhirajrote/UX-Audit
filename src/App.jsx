@@ -8,7 +8,7 @@ import {
   TrendingUp, CircleAlert, CheckCircle2, ChevronsUpDown, GripVertical,
   FileText, FileSpreadsheet, FileType2, Presentation, Braces, Building2,
   Link2, Mail, RotateCcw, ExternalLink, Printer, CheckSquare, Square,
-  CalendarRange, UserCircle2, Image as ImageIcon, ArrowLeft, Info, LogOut, Lock, Eye, EyeOff, Upload, FileUp, ListChecks, Users2, KeyRound, ShieldAlert
+  CalendarRange, UserCircle2, Image as ImageIcon, ArrowLeft, Info, LogOut, Lock, Eye, EyeOff, Upload, FileUp, ListChecks, Users2, KeyRound, ShieldAlert, Bell, CreditCard, Package, TrendingDown, Gem, PauseCircle, PlayCircle, ReceiptText, Gift
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -252,6 +252,24 @@ function AppShell({ username, onLogout, isAdmin, seedDemo }) {
   const [editingProject, setEditingProject] = useState(null);
   const [exportCtx, setExportCtx] = useState(null);
   const openExport = useCallback((ctx) => setExportCtx(ctx), []);
+  const [billingSummary, setBillingSummary] = useState(null); // { status, trialDaysRemaining, packageName } | null
+
+  useEffect(() => {
+    if (isAdmin) return;
+    (async () => {
+      try {
+        const res = await fetch("/api/subscription");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.isAdminAccount) return;
+        setBillingSummary({
+          status: data.subscription?.status || null,
+          trialDaysRemaining: data.trialDaysRemaining,
+          packageName: data.package?.name || null,
+        });
+      } catch (e) { /* no backend — no banner */ }
+    })();
+  }, [isAdmin]);
 
   const showToast = useCallback((msg, icon) => {
     setToast({ msg, icon, id: uid("t") });
@@ -483,8 +501,20 @@ function AppShell({ username, onLogout, isAdmin, seedDemo }) {
             activeProject={activeProject}
             setCommandOpen={setCommandOpen}
             onNewProject={() => setNewProjectOpen(true)}
+            isAdmin={isAdmin}
           />
           <div className="uxa-content">
+            {billingSummary && view !== "billing" && (billingSummary.status === "expired" || (billingSummary.status === "trial" && billingSummary.trialDaysRemaining <= 3)) && (
+              <div className={`uxa-trial-banner ${billingSummary.status === "expired" ? "expired" : ""}`}>
+                <Gift size={15} />
+                <span>
+                  {billingSummary.status === "expired"
+                    ? "Your free trial has ended. Upgrade to keep using Auditlane without interruption."
+                    : `Your free trial ends in ${billingSummary.trialDaysRemaining} day${billingSummary.trialDaysRemaining === 1 ? "" : "s"}.`}
+                </span>
+                <button onClick={() => setView("billing")}>View Billing</button>
+              </div>
+            )}
             {view === "dashboard" && (
               <Dashboard stats={dashStats} severities={severities} activity={activity} projects={projects}
                 onOpenProject={openProject} onNewProject={() => setNewProjectOpen(true)}
@@ -521,6 +551,15 @@ function AppShell({ username, onLogout, isAdmin, seedDemo }) {
             )}
             {view === "users" && isAdmin && (
               <UsersView showToast={showToast} />
+            )}
+            {view === "billing" && !isAdmin && (
+              <BillingView showToast={showToast} />
+            )}
+            {view === "packages" && isAdmin && (
+              <PackagesAdminView showToast={showToast} />
+            )}
+            {view === "admin-subscriptions" && isAdmin && (
+              <AdminSubscriptionsView showToast={showToast} />
             )}
           </div>
         </div>
@@ -817,8 +856,13 @@ function Sidebar({ view, setView, theme, setTheme, setCommandOpen, username, onL
     { id: "projects", label: "Projects", icon: FolderKanban },
     { id: "workspace", label: "Audit Workspace", icon: ClipboardList },
     { id: "reports", label: "Reports", icon: FileBarChart },
+    ...(!isAdmin ? [{ id: "billing", label: "Billing", icon: CreditCard }] : []),
     { id: "settings", label: "Settings", icon: SettingsIcon },
-    ...(isAdmin ? [{ id: "users", label: "Users", icon: Users2 }] : []),
+    ...(isAdmin ? [
+      { id: "users", label: "Users", icon: Users2 },
+      { id: "packages", label: "Packages", icon: Package },
+      { id: "admin-subscriptions", label: "Subscriptions", icon: ReceiptText },
+    ] : []),
   ];
   return (
     <aside className="uxa-sidebar">
@@ -854,16 +898,20 @@ function Sidebar({ view, setView, theme, setTheme, setCommandOpen, username, onL
   );
 }
 
-function TopBar({ view, activeProject, setCommandOpen, onNewProject }) {
+function TopBar({ view, activeProject, setCommandOpen, onNewProject, isAdmin }) {
   const titles = {
     dashboard: "Dashboard", projects: "Projects", workspace: activeProject ? activeProject.name : "Audit Workspace",
-    settings: "Settings", reports: "Reports", users: "Users",
+    settings: "Settings", reports: "Reports", users: "Users", billing: "Billing",
+    packages: "Packages", "admin-subscriptions": "Subscriptions",
   };
   const subtitles = {
     dashboard: "Audit program overview across all projects", projects: "All client audit engagements",
     workspace: activeProject ? `${activeProject.client} · ${activeProject.status}` : "Select a project to begin",
     settings: "Configure master data used across audits", reports: "Generate and export audit reports",
     users: "Manage registered accounts (admin only)",
+    billing: "Your plan, usage, and payment history",
+    packages: "Configure subscription packages (admin only)",
+    "admin-subscriptions": "Manage every user's subscription and view analytics (admin only)",
   };
   return (
     <header className="uxa-topbar">
@@ -875,9 +923,66 @@ function TopBar({ view, activeProject, setCommandOpen, onNewProject }) {
         <button className="uxa-search-pill" onClick={() => setCommandOpen(true)}>
           <Search size={14} /> Search projects, screens, issues… <kbd>⌘K</kbd>
         </button>
+        {!isAdmin && <NotificationBell />}
         <button className="uxa-btn primary" onClick={onNewProject}><Plus size={14} /> New Project</button>
       </div>
     </header>
+  );
+}
+
+function NotificationBell() {
+  const [open, setOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/notifications");
+      if (!res.ok) return;
+      const data = await res.json();
+      setNotifications(data.notifications || []);
+      setUnreadCount(data.unreadCount || 0);
+    } catch (e) { /* no backend — bell just stays quiet */ }
+    setLoaded(true);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function markAllRead() {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    setUnreadCount(0);
+    try { await fetch("/api/notifications", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ all: true }) }); } catch (e) { /* ignore */ }
+  }
+
+  if (!loaded || (notifications.length === 0 && !open)) {
+    // Still show the bell (so users can open it later) once we know the backend exists.
+  }
+
+  return (
+    <div className="uxa-notif-wrap">
+      <button className="uxa-notif-bell" onClick={() => { setOpen((v) => !v); if (!open) load(); }}>
+        <Bell size={16} />
+        {unreadCount > 0 && <span className="uxa-notif-dot">{unreadCount > 9 ? "9+" : unreadCount}</span>}
+      </button>
+      {open && (
+        <div className="uxa-notif-panel">
+          <div className="uxa-notif-head">
+            <span>Notifications</span>
+            {unreadCount > 0 && <button onClick={markAllRead}>Mark all read</button>}
+          </div>
+          <div className="uxa-notif-list">
+            {notifications.length === 0 && <div className="uxa-empty" style={{ padding: "24px 10px" }}>No notifications yet.</div>}
+            {notifications.map((n) => (
+              <div key={n.id} className={`uxa-notif-item ${n.read ? "" : "unread"}`}>
+                <p>{n.message}</p>
+                <span>{relTime(new Date(n.created_at).getTime())}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -2027,6 +2132,640 @@ function ResetPasswordModal({ user, onClose, onDone }) {
   );
 }
 
+/* ============================== BILLING (USER-FACING) ============================== */
+
+function BillingView({ showToast }) {
+  const [data, setData] = useState(null); // subscription view
+  const [packages, setPackages] = useState(null);
+  const [cycle, setCycle] = useState("monthly");
+  const [busy, setBusy] = useState("");
+  const [enterpriseOpen, setEnterpriseOpen] = useState(false);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const [subRes, pkgRes] = await Promise.all([fetch("/api/subscription"), fetch("/api/packages")]);
+      if (subRes.ok) setData(await subRes.json());
+      if (pkgRes.ok) { const pd = await pkgRes.json(); setPackages((pd.packages || []).sort((a, b) => a.display_order - b.display_order)); }
+    } catch (e) { setError("Could not reach the server."); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  async function act(action, params = {}) {
+    setBusy(action + (params.packageId || ""));
+    setError("");
+    try {
+      const res = await fetch("/api/subscription", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ...params }),
+      });
+      const d = await res.json();
+      if (!res.ok) { setError(d.error || "Something went wrong."); setBusy(""); return; }
+      showToast("Done", "check");
+      await load();
+    } catch (e) { setError("Could not reach the server."); }
+    setBusy("");
+  }
+
+  if (!data || !packages) {
+    return <div className="uxa-panel uxa-empty-state"><Loader2 size={22} className="spin" /></div>;
+  }
+  if (data.isAdminAccount) {
+    return <div className="uxa-panel uxa-empty-state"><ShieldAlert size={24} /><h3>Admin accounts aren't billed</h3><p>Billing applies to registered user accounts only.</p></div>;
+  }
+
+  const sub = data.subscription;
+  const pkg = data.package;
+  const daysLeft = sub?.status === "trial" ? data.trialDaysRemaining : (sub?.current_period_end ? daysUntilClient(sub.current_period_end) : null);
+
+  return (
+    <div>
+      <div className="uxa-panel uxa-current-plan">
+        <div>
+          <div className="uxa-current-plan-label">Current plan</div>
+          <h2>{pkg ? pkg.name : "No plan assigned"}</h2>
+          <div className="uxa-current-plan-meta">
+            <span className={`uxa-pill status-${(sub?.status || "").replace(/^./, (c) => c.toUpperCase())}`}>{sub?.status || "none"}</span>
+            {sub?.status === "trial" && daysLeft !== null && <span>{daysLeft} day{daysLeft === 1 ? "" : "s"} left in trial</span>}
+            {sub?.status === "active" && sub?.current_period_end && <span>Renews {new Date(sub.current_period_end).toLocaleDateString()}</span>}
+            {sub?.cancel_at_period_end && <span className="uxa-text-warn">Cancels at period end</span>}
+          </div>
+        </div>
+        <div className="uxa-current-plan-actions">
+          {sub?.cancel_at_period_end ? (
+            <button className="uxa-btn" disabled={busy === "reactivate"} onClick={() => act("reactivate")}><PlayCircle size={14} /> Reactivate</button>
+          ) : (
+            sub?.status !== "expired" && sub?.status !== "cancelled" && pkg && !pkg.is_trial && (
+              <button className="uxa-btn" disabled={busy === "cancel"} onClick={() => { if (window.confirm("Cancel your subscription at the end of the current billing period?")) act("cancel"); }}><PauseCircle size={14} /> Cancel</button>
+            )
+          )}
+          {sub?.status === "trial" && (
+            <button className="uxa-btn" disabled={busy === "cancel"} onClick={() => { if (window.confirm("End your trial now?")) act("cancel"); }}>End trial</button>
+          )}
+        </div>
+      </div>
+
+      {error && <div className="uxa-login-error" style={{ marginBottom: 16 }}><Info size={13} /> {error}</div>}
+
+      <div className="uxa-panel">
+        <div className="uxa-panel-head">
+          <h3 style={{ margin: 0 }}>Available packages</h3>
+          <div className="uxa-cycle-toggle">
+            <button className={cycle === "monthly" ? "active" : ""} onClick={() => setCycle("monthly")}>Monthly</button>
+            <button className={cycle === "yearly" ? "active" : ""} onClick={() => setCycle("yearly")}>Yearly</button>
+          </div>
+        </div>
+        <div className="uxa-plans-grid">
+          {packages.map((p) => {
+            const isCurrent = pkg?.id === p.id && sub?.status !== "expired" && sub?.status !== "cancelled";
+            const price = cycle === "yearly" && p.yearly_price != null ? p.yearly_price : p.price;
+            return (
+              <div key={p.id} className={`uxa-plan-card ${isCurrent ? "current" : ""} ${p.is_enterprise ? "enterprise" : ""}`}>
+                {p.is_enterprise ? <Gem size={18} /> : p.is_trial ? <Gift size={18} /> : <CreditCard size={18} />}
+                <h4>{p.name}</h4>
+                <p>{p.description}</p>
+                {p.is_enterprise ? (
+                  <div className="uxa-plan-price">Custom pricing</div>
+                ) : p.is_trial ? (
+                  <div className="uxa-plan-price">Free for {p.trial_days} days</div>
+                ) : (
+                  <div className="uxa-plan-price">${price}<span>/{cycle === "yearly" ? "yr" : "mo"}</span></div>
+                )}
+                <ul className="uxa-plan-features">
+                  {(p.features || []).map((f, i) => <li key={i}><Check size={12} /> {f}</li>)}
+                </ul>
+                {isCurrent ? (
+                  <button className="uxa-btn full" disabled>Current plan</button>
+                ) : p.is_enterprise ? (
+                  <button className="uxa-btn primary full" onClick={() => setEnterpriseOpen(p.id)}>Contact Sales</button>
+                ) : p.is_trial ? (
+                  <button className="uxa-btn full" disabled title="Trials can't be self-selected">Not available</button>
+                ) : (
+                  <button className="uxa-btn primary full" disabled={busy === "change_plan" + p.id} onClick={() => act("change_plan", { packageId: p.id, billingCycle: cycle })}>
+                    {busy === "change_plan" + p.id ? <Loader2 size={13} className="spin" /> : <TrendingDown size={13} style={{ transform: "rotate(180deg)" }} />} Choose plan
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="uxa-dash-grid2">
+        <div className="uxa-panel">
+          <h3>Payment history</h3>
+          <table className="uxa-table">
+            <thead><tr><th>Date</th><th>Amount</th><th>Cycle</th><th>Status</th><th>Notes</th></tr></thead>
+            <tbody>
+              {data.payments.map((p) => (
+                <tr key={p.id}>
+                  <td className="uxa-text-muted">{relTime(new Date(p.created_at).getTime())}</td>
+                  <td>${p.amount}</td>
+                  <td>{p.billing_cycle || "—"}</td>
+                  <td><span className={`uxa-pill status-${p.status === "paid" ? "active" : p.status === "failed" ? "Draft" : "Open"}`}>{p.status}</span></td>
+                  <td className="uxa-cell-truncate" title={p.notes}>{p.notes}</td>
+                </tr>
+              ))}
+              {data.payments.length === 0 && <tr><td colSpan={5} className="uxa-empty">No payments recorded yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <div className="uxa-panel">
+          <h3>Subscription history</h3>
+          <ul className="uxa-timeline">
+            {data.history.map((h) => (
+              <li key={h.id}>
+                <span className="uxa-timeline-dot" />
+                <div><p>{h.notes || h.action}</p><span>{relTime(new Date(h.created_at).getTime())} · {h.actor}</span></div>
+              </li>
+            ))}
+            {data.history.length === 0 && <div className="uxa-empty">No history yet.</div>}
+          </ul>
+        </div>
+      </div>
+
+      {enterpriseOpen && (
+        <EnterpriseRequestModal
+          packageId={enterpriseOpen}
+          onClose={() => setEnterpriseOpen(false)}
+          onSubmit={async (message) => { await act("request_enterprise", { packageId: enterpriseOpen, message }); setEnterpriseOpen(false); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function daysUntilClient(dateStr) {
+  if (!dateStr) return null;
+  return Math.max(0, Math.ceil((new Date(dateStr).getTime() - Date.now()) / (24 * 60 * 60 * 1000)));
+}
+
+function EnterpriseRequestModal({ onClose, onSubmit }) {
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="uxa-modal-overlay" onClick={onClose}>
+      <div className="uxa-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="uxa-modal-head"><h3>Contact Sales</h3><button onClick={onClose}><X size={16} /></button></div>
+        <div className="uxa-form-field">
+          <label>Tell us about your team (optional)</label>
+          <textarea rows={4} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Team size, use case, timeline…" />
+        </div>
+        <div className="uxa-modal-actions">
+          <button className="uxa-btn" onClick={onClose}>Cancel</button>
+          <button className="uxa-btn primary" disabled={busy} onClick={async () => { setBusy(true); await onSubmit(message); }}>
+            {busy ? <Loader2 size={14} className="spin" /> : <Gem size={14} />} Send request
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================== PACKAGES (ADMIN) ============================== */
+
+function PackagesAdminView({ showToast }) {
+  const [packages, setPackages] = useState(null);
+  const [editing, setEditing] = useState(null); // package object | "new" | null
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/packages");
+      const data = await res.json();
+      setPackages((data.packages || []).sort((a, b) => a.display_order - b.display_order));
+    } catch (e) { setPackages([]); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  async function remove(p) {
+    if (!window.confirm(`Delete "${p.name}"?`)) return;
+    try {
+      const res = await fetch(`/api/packages?id=${encodeURIComponent(p.id)}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error || "Could not delete"); return; }
+      showToast("Package deleted", "check");
+      load();
+    } catch (e) { showToast("Could not reach the server"); }
+  }
+
+  if (!packages) return <div className="uxa-panel uxa-empty-state"><Loader2 size={22} className="spin" /></div>;
+
+  return (
+    <div className="uxa-panel">
+      <div className="uxa-panel-head">
+        <span className="uxa-text-muted">{packages.length} package{packages.length === 1 ? "" : "s"}</span>
+        <button className="uxa-btn primary" onClick={() => setEditing("new")}><Plus size={14} /> New Package</button>
+      </div>
+      <table className="uxa-table">
+        <thead><tr><th>Name</th><th>Type</th><th>Price</th><th>Default</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          {packages.map((p) => (
+            <tr key={p.id}>
+              <td className="uxa-cell-strong">{p.name}</td>
+              <td>{p.is_enterprise ? "Enterprise" : p.is_trial ? "Trial" : "Paid"}</td>
+              <td>{p.is_enterprise ? "Custom" : p.is_trial ? `${p.trial_days}d free` : `$${p.price}/mo${p.yearly_price != null ? ` · $${p.yearly_price}/yr` : ""}`}</td>
+              <td>{p.is_default ? <Check size={14} /> : "—"}</td>
+              <td><span className={`uxa-pill ${p.status === "active" ? "status-active" : "status-disabled"}`}>{p.status}</span></td>
+              <td className="uxa-row-actions">
+                <button title="Edit" onClick={() => setEditing(p)}><Pencil size={13} /></button>
+                <button title="Delete" onClick={() => remove(p)}><Trash2 size={13} /></button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {editing && (
+        <PackageEditModal
+          pkg={editing === "new" ? null : editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); load(); showToast("Package saved", "check"); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function PackageEditModal({ pkg, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    name: pkg?.name || "", description: pkg?.description || "",
+    price: pkg?.price ?? 0, yearly_price: pkg?.yearly_price ?? "",
+    billing_cycle: pkg?.billing_cycle || "monthly",
+    features: (pkg?.features || []).join("\n"),
+    user_limit: pkg?.user_limit ?? "", storage_limit: pkg?.storage_limit || "",
+    is_trial: pkg?.is_trial || false, is_enterprise: pkg?.is_enterprise || false,
+    is_default: pkg?.is_default || false, trial_days: pkg?.trial_days ?? 15,
+    status: pkg?.status || "active", display_order: pkg?.display_order ?? 0,
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  function set(key, val) { setForm((f) => ({ ...f, [key]: val })); }
+
+  async function save() {
+    if (!form.name.trim()) { setError("Name is required."); return; }
+    setBusy(true); setError("");
+    const body = {
+      ...(pkg ? { id: pkg.id } : {}),
+      name: form.name.trim(), description: form.description,
+      price: Number(form.price) || 0,
+      yearly_price: form.yearly_price === "" ? null : Number(form.yearly_price),
+      billing_cycle: form.billing_cycle,
+      features: form.features.split("\n").map((f) => f.trim()).filter(Boolean),
+      user_limit: form.user_limit === "" ? null : Number(form.user_limit),
+      storage_limit: form.storage_limit || null,
+      is_trial: form.is_trial, is_enterprise: form.is_enterprise, is_default: form.is_default,
+      trial_days: Number(form.trial_days) || 15, status: form.status, display_order: Number(form.display_order) || 0,
+    };
+    try {
+      const res = await fetch("/api/packages", {
+        method: pkg ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Could not save."); setBusy(false); return; }
+      onSaved();
+    } catch (e) { setError("Could not reach the server."); setBusy(false); }
+  }
+
+  return (
+    <div className="uxa-modal-overlay" onClick={onClose}>
+      <div className="uxa-modal wide" onClick={(e) => e.stopPropagation()}>
+        <div className="uxa-modal-head"><h3>{pkg ? "Edit package" : "New package"}</h3><button onClick={onClose}><X size={16} /></button></div>
+        <div className="uxa-branding-grid">
+          <div className="uxa-form-field"><label>Package name *</label><input value={form.name} onChange={(e) => set("name", e.target.value)} /></div>
+          <div className="uxa-form-field"><label>Status</label>
+            <select value={form.status} onChange={(e) => set("status", e.target.value)}><option value="active">Active</option><option value="inactive">Inactive</option></select>
+          </div>
+          <div className="uxa-form-field"><label>Display order</label><input type="number" value={form.display_order} onChange={(e) => set("display_order", e.target.value)} /></div>
+          <div className="uxa-form-field" style={{ gridColumn: "span 3" }}><label>Description</label><input value={form.description} onChange={(e) => set("description", e.target.value)} /></div>
+          <div className="uxa-form-field"><label>Monthly price ($)</label><input type="number" value={form.price} onChange={(e) => set("price", e.target.value)} disabled={form.is_enterprise} /></div>
+          <div className="uxa-form-field"><label>Yearly price ($, optional)</label><input type="number" value={form.yearly_price} onChange={(e) => set("yearly_price", e.target.value)} disabled={form.is_enterprise} /></div>
+          <div className="uxa-form-field"><label>User limit (blank = unlimited)</label><input type="number" value={form.user_limit} onChange={(e) => set("user_limit", e.target.value)} /></div>
+          <div className="uxa-form-field" style={{ gridColumn: "span 3" }}><label>Features (one per line)</label>
+            <textarea rows={4} className="uxa-import-textarea" value={form.features} onChange={(e) => set("features", e.target.value)} />
+          </div>
+          <div className="uxa-form-field"><label className="uxa-checkbox"><input type="checkbox" checked={form.is_trial} onChange={(e) => set("is_trial", e.target.checked)} /> Is trial package</label></div>
+          <div className="uxa-form-field"><label className="uxa-checkbox"><input type="checkbox" checked={form.is_enterprise} onChange={(e) => set("is_enterprise", e.target.checked)} /> Is enterprise package</label></div>
+          <div className="uxa-form-field"><label className="uxa-checkbox"><input type="checkbox" checked={form.is_default} onChange={(e) => set("is_default", e.target.checked)} /> Default for new signups</label></div>
+          {form.is_trial && (
+            <div className="uxa-form-field"><label>Trial days</label><input type="number" value={form.trial_days} onChange={(e) => set("trial_days", e.target.value)} /></div>
+          )}
+        </div>
+        {error && <div className="uxa-login-error" style={{ marginTop: 8 }}><Info size={13} /> {error}</div>}
+        <div className="uxa-modal-actions">
+          <button className="uxa-btn" onClick={onClose}>Cancel</button>
+          <button className="uxa-btn primary" disabled={busy} onClick={save}>{busy ? <Loader2 size={14} className="spin" /> : <Save size={14} />} Save package</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================== SUBSCRIPTIONS (ADMIN) ============================== */
+
+function AdminSubscriptionsView({ showToast }) {
+  const [tab, setTab] = useState("overview");
+  return (
+    <div className="uxa-panel">
+      <div className="uxa-settings-tabs">
+        <button className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>Overview</button>
+        <button className={tab === "subscriptions" ? "active" : ""} onClick={() => setTab("subscriptions")}>All Subscriptions</button>
+        <button className={tab === "sales" ? "active" : ""} onClick={() => setTab("sales")}>Sales Requests</button>
+      </div>
+      {tab === "overview" && <SubscriptionOverviewTab />}
+      {tab === "subscriptions" && <AllSubscriptionsTab showToast={showToast} />}
+      {tab === "sales" && <SalesRequestsTab showToast={showToast} />}
+    </div>
+  );
+}
+
+function SubscriptionOverviewTab() {
+  const [stats, setStats] = useState(null);
+  useEffect(() => {
+    (async () => {
+      try { const res = await fetch("/api/admin/analytics"); if (res.ok) setStats(await res.json()); } catch (e) { /* ignore */ }
+    })();
+  }, []);
+  if (!stats) return <div className="uxa-empty-state"><Loader2 size={20} className="spin" /></div>;
+
+  const cards = [
+    { label: "Total Trial Users", value: stats.totalTrialUsers },
+    { label: "Active Paid Users", value: stats.activePaidUsers },
+    { label: "Trial → Paid Conversion", value: `${stats.conversionRate}%` },
+    { label: "Monthly Revenue", value: `$${stats.monthlyRevenue}` },
+    { label: "Annual Revenue", value: `$${stats.annualRevenue}` },
+    { label: "Total Registered Users", value: stats.totalUsers },
+  ];
+
+  return (
+    <div>
+      <div className="uxa-cards-grid">
+        {cards.map((c) => (
+          <div className="uxa-stat-card" key={c.label}>
+            <div className="uxa-stat-icon"><TrendingUp size={16} /></div>
+            <div className="uxa-stat-value">{c.value}</div>
+            <div className="uxa-stat-label">{c.label}</div>
+          </div>
+        ))}
+      </div>
+      <div className="uxa-dash-grid2">
+        <div className="uxa-panel">
+          <h3>Package-wise subscribers</h3>
+          <table className="uxa-table">
+            <thead><tr><th>Package</th><th>Subscribers</th></tr></thead>
+            <tbody>
+              {stats.packageWiseCounts.map((p) => <tr key={p.name}><td>{p.name}</td><td>{p.count}</td></tr>)}
+              {stats.packageWiseCounts.length === 0 && <tr><td colSpan={2} className="uxa-empty">No data yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <div className="uxa-panel">
+          <h3>Expiring within 7 days</h3>
+          <table className="uxa-table">
+            <thead><tr><th>User</th><th>Package</th><th>Expires</th></tr></thead>
+            <tbody>
+              {stats.expiringSubscriptions.map((s, i) => <tr key={i}><td>{s.username}</td><td>{s.package || "—"}</td><td className="uxa-text-muted">{new Date(s.expiresAt).toLocaleDateString()}</td></tr>)}
+              {stats.expiringSubscriptions.length === 0 && <tr><td colSpan={3} className="uxa-empty">Nothing expiring soon.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div className="uxa-dash-grid2">
+        <div className="uxa-panel">
+          <h3>Recently upgraded</h3>
+          <ul className="uxa-timeline">
+            {stats.recentlyUpgraded.map((c, i) => <li key={i}><span className="uxa-timeline-dot" /><div><p>{c.username} → {c.toPackage}</p><span>{relTime(new Date(c.createdAt).getTime())}</span></div></li>)}
+            {stats.recentlyUpgraded.length === 0 && <div className="uxa-empty">No recent upgrades.</div>}
+          </ul>
+        </div>
+        <div className="uxa-panel">
+          <h3>Recently downgraded</h3>
+          <ul className="uxa-timeline">
+            {stats.recentlyDowngraded.map((c, i) => <li key={i}><span className="uxa-timeline-dot" /><div><p>{c.username} → {c.toPackage}</p><span>{relTime(new Date(c.createdAt).getTime())}</span></div></li>)}
+            {stats.recentlyDowngraded.length === 0 && <div className="uxa-empty">No recent downgrades.</div>}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AllSubscriptionsTab({ showToast }) {
+  const [rows, setRows] = useState(null);
+  const [manageUser, setManageUser] = useState(null);
+  const [q, setQ] = useState("");
+
+  const load = useCallback(async () => {
+    try { const res = await fetch("/api/admin/subscriptions"); if (res.ok) { const d = await res.json(); setRows(d.users || []); } } catch (e) { setRows([]); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  if (!rows) return <div className="uxa-empty-state"><Loader2 size={20} className="spin" /></div>;
+  const filtered = rows.filter((r) => r.username.toLowerCase().includes(q.toLowerCase()));
+
+  return (
+    <div>
+      <div className="uxa-inline-search" style={{ marginBottom: 12 }}><Search size={14} /><input placeholder="Filter users…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+      <table className="uxa-table">
+        <thead><tr><th>User</th><th>Package</th><th>Status</th><th>Trial/Renewal</th><th></th></tr></thead>
+        <tbody>
+          {filtered.map((r) => (
+            <tr key={r.id}>
+              <td className="uxa-cell-strong">{r.username}</td>
+              <td>{r.package?.name || "—"}</td>
+              <td><span className={`uxa-pill status-${(r.subscription?.status || "").replace(/^./, (c) => c.toUpperCase())}`}>{r.subscription?.status || "none"}</span></td>
+              <td className="uxa-text-muted">
+                {r.subscription?.status === "trial" ? `${r.trialDaysRemaining}d left` : r.subscription?.current_period_end ? new Date(r.subscription.current_period_end).toLocaleDateString() : "—"}
+              </td>
+              <td className="uxa-row-actions"><button className="uxa-btn tiny" onClick={() => setManageUser(r)}>Manage</button></td>
+            </tr>
+          ))}
+          {filtered.length === 0 && <tr><td colSpan={5} className="uxa-empty">No users match.</td></tr>}
+        </tbody>
+      </table>
+
+      {manageUser && (
+        <ManageSubscriptionModal
+          user={manageUser}
+          onClose={() => setManageUser(null)}
+          onChanged={() => { load(); showToast("Updated", "check"); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ManageSubscriptionModal({ user, onClose, onChanged }) {
+  const [detail, setDetail] = useState(null);
+  const [packages, setPackages] = useState([]);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [assignPkg, setAssignPkg] = useState("");
+  const [assignCycle, setAssignCycle] = useState("monthly");
+  const [payAmount, setPayAmount] = useState("");
+  const [payStatus, setPayStatus] = useState("paid");
+  const [payNotes, setPayNotes] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const [dRes, pRes] = await Promise.all([fetch(`/api/admin/subscriptions?userId=${encodeURIComponent(user.id)}`), fetch("/api/packages")]);
+      if (dRes.ok) setDetail(await dRes.json());
+      if (pRes.ok) { const pd = await pRes.json(); setPackages((pd.packages || []).sort((a, b) => a.display_order - b.display_order)); }
+    } catch (e) { setError("Could not reach the server."); }
+  }, [user.id]);
+  useEffect(() => { load(); }, [load]);
+
+  async function act(action, params = {}) {
+    setBusy(action); setError("");
+    try {
+      const res = await fetch("/api/admin/subscriptions", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, action, ...params }),
+      });
+      const d = await res.json();
+      if (!res.ok) { setError(d.error || "Something went wrong."); setBusy(""); return; }
+      await load();
+      onChanged();
+    } catch (e) { setError("Could not reach the server."); }
+    setBusy("");
+  }
+
+  return (
+    <div className="uxa-modal-overlay" onClick={onClose}>
+      <div className="uxa-modal wide" onClick={(e) => e.stopPropagation()}>
+        <div className="uxa-modal-head"><h3>Manage {user.username}</h3><button onClick={onClose}><X size={16} /></button></div>
+
+        {!detail ? <Loader2 size={18} className="spin" /> : (
+          <>
+            <div className="uxa-current-plan-meta" style={{ marginBottom: 14 }}>
+              <span className={`uxa-pill status-${(detail.subscription?.status || "").replace(/^./, (c) => c.toUpperCase())}`}>{detail.subscription?.status || "none"}</span>
+              <span>{detail.package?.name || "No package"}</span>
+              {detail.subscription?.trial_ends_at && <span>Trial ends {new Date(detail.subscription.trial_ends_at).toLocaleDateString()}</span>}
+              {detail.subscription?.current_period_end && <span>Renews {new Date(detail.subscription.current_period_end).toLocaleDateString()}</span>}
+            </div>
+
+            <div className="uxa-admin-actions-grid">
+              <div className="uxa-form-field">
+                <label>Assign / change package</label>
+                <div className="uxa-inline-form">
+                  <select value={assignPkg} onChange={(e) => setAssignPkg(e.target.value)}>
+                    <option value="">Select package…</option>
+                    {packages.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                  <select value={assignCycle} onChange={(e) => setAssignCycle(e.target.value)}>
+                    <option value="monthly">Monthly</option><option value="yearly">Yearly</option>
+                  </select>
+                  <button className="uxa-btn primary tiny" disabled={!assignPkg || busy} onClick={() => act("assign_package", { packageId: assignPkg, billingCycle: assignCycle })}>Assign</button>
+                </div>
+              </div>
+
+              <div className="uxa-form-field">
+                <label>Trial</label>
+                <div className="uxa-inline-form">
+                  <button className="uxa-btn tiny" disabled={busy} onClick={() => act("extend_trial", { days: 7 })}>+7 days</button>
+                  <button className="uxa-btn tiny" disabled={busy} onClick={() => act("extend_trial", { days: 14 })}>+14 days</button>
+                  <button className="uxa-btn tiny" disabled={busy} onClick={() => { if (window.confirm("End this user's trial immediately?")) act("end_trial"); }}>End trial now</button>
+                </div>
+              </div>
+
+              <div className="uxa-form-field">
+                <label>Subscription status</label>
+                <div className="uxa-inline-form">
+                  <button className="uxa-btn tiny" disabled={busy} onClick={() => act("activate")}><PlayCircle size={12} /> Activate</button>
+                  <button className="uxa-btn tiny" disabled={busy} onClick={() => { if (window.confirm("Deactivate this user's subscription?")) act("deactivate"); }}><PauseCircle size={12} /> Deactivate</button>
+                  <button className="uxa-btn tiny" disabled={busy} onClick={() => act("extend_subscription", { days: 30 })}>Extend +30 days</button>
+                </div>
+              </div>
+
+              <div className="uxa-form-field">
+                <label>Record a payment</label>
+                <div className="uxa-inline-form">
+                  <input type="number" placeholder="Amount" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} style={{ width: 90 }} />
+                  <select value={payStatus} onChange={(e) => setPayStatus(e.target.value)}>
+                    <option value="paid">Paid</option><option value="pending">Pending</option><option value="failed">Failed</option>
+                  </select>
+                  <input placeholder="Notes" value={payNotes} onChange={(e) => setPayNotes(e.target.value)} />
+                  <button className="uxa-btn tiny primary" disabled={!payAmount || busy} onClick={() => act("record_payment", { amount: payAmount, status: payStatus, notes: payNotes })}>Record</button>
+                </div>
+              </div>
+            </div>
+
+            {error && <div className="uxa-login-error" style={{ marginTop: 10 }}><Info size={13} /> {error}</div>}
+
+            <div className="uxa-dash-grid2" style={{ marginTop: 16 }}>
+              <div>
+                <h4 style={{ fontSize: 12, marginBottom: 8 }}>Payments</h4>
+                <table className="uxa-table">
+                  <thead><tr><th>Date</th><th>Amount</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {detail.payments.map((p) => <tr key={p.id}><td className="uxa-text-muted">{relTime(new Date(p.created_at).getTime())}</td><td>${p.amount}</td><td>{p.status}</td></tr>)}
+                    {detail.payments.length === 0 && <tr><td colSpan={3} className="uxa-empty">None yet.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+              <div>
+                <h4 style={{ fontSize: 12, marginBottom: 8 }}>History</h4>
+                <ul className="uxa-timeline">
+                  {detail.history.map((h) => <li key={h.id}><span className="uxa-timeline-dot" /><div><p>{h.notes || h.action}</p><span>{relTime(new Date(h.created_at).getTime())}</span></div></li>)}
+                  {detail.history.length === 0 && <div className="uxa-empty">None yet.</div>}
+                </ul>
+              </div>
+            </div>
+          </>
+        )}
+
+        <div className="uxa-modal-actions">
+          <button className="uxa-btn" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SalesRequestsTab({ showToast }) {
+  const [requests, setRequests] = useState(null);
+
+  const load = useCallback(async () => {
+    try { const res = await fetch("/api/admin/sales-requests"); if (res.ok) { const d = await res.json(); setRequests(d.requests || []); } } catch (e) { setRequests([]); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  async function updateStatus(id, status) {
+    try {
+      const res = await fetch("/api/admin/sales-requests", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status }) });
+      if (!res.ok) { showToast("Could not update"); return; }
+      showToast("Updated", "check");
+      load();
+    } catch (e) { showToast("Could not reach the server"); }
+  }
+
+  if (!requests) return <div className="uxa-empty-state"><Loader2 size={20} className="spin" /></div>;
+
+  return (
+    <table className="uxa-table">
+      <thead><tr><th>User</th><th>Package</th><th>Message</th><th>Status</th><th>Received</th></tr></thead>
+      <tbody>
+        {requests.map((r) => (
+          <tr key={r.id}>
+            <td className="uxa-cell-strong">{r.username}</td>
+            <td>{r.package || "—"}</td>
+            <td className="uxa-cell-truncate" title={r.message}>{r.message || "—"}</td>
+            <td>
+              <select value={r.status} onChange={(e) => updateStatus(r.id, e.target.value)}>
+                <option value="new">New</option><option value="contacted">Contacted</option><option value="closed">Closed</option>
+              </select>
+            </td>
+            <td className="uxa-text-muted">{relTime(new Date(r.createdAt).getTime())}</td>
+          </tr>
+        ))}
+        {requests.length === 0 && <tr><td colSpan={5} className="uxa-empty">No requests yet.</td></tr>}
+      </tbody>
+    </table>
+  );
+}
+
 function CommandPalette({ projects, screensFlat, issuesFlat, onClose, onGoto, onOpenScreen }) {
   const [q, setQ] = useState("");
   const views = [
@@ -2961,6 +3700,10 @@ function StyleSheet() {
       .uxa-pill.status-InProgress { background: #DBEAFE; color: #2563EB; }
       .uxa-pill.status-Completed { background: #DCFCE7; color: #15803D; }
       .uxa-pill.status-Archived { background: #F1F5F9; color: #94A3B8; }
+      .uxa-pill.status-Trial { background: #E0E7FF; color: #4338CA; }
+      .uxa-pill.status-Active { background: #DCFCE7; color: #15803D; }
+      .uxa-pill.status-Expired { background: #FEE2E2; color: #B91C1C; }
+      .uxa-pill.status-Cancelled { background: #F1F5F9; color: #64748B; }
       .uxa-pill.status-Open { background: #FEF3C7; color: #B45309; }
       .uxa-pill.status-InReview { background: #E0E7FF; color: #4338CA; }
       .uxa-pill.status-Resolved { background: #DCFCE7; color: #15803D; }
@@ -3117,6 +3860,54 @@ function StyleSheet() {
       .uxa-ai-output { margin-top: 10px; padding: 10px; background: var(--primary-soft); border-radius: var(--radius-sm); font-size: 12.5px; color: var(--text); white-space: pre-wrap; max-height: 200px; overflow-y: auto; }
 
       .uxa-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 999px; font-size: 12.5px; display: flex; align-items: center; gap: 6px; z-index: 80; box-shadow: var(--shadow); }
+
+      /* Notifications */
+      .uxa-notif-wrap { position: relative; }
+      .uxa-notif-bell { position: relative; display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); }
+      .uxa-notif-bell:hover { color: var(--primary); border-color: var(--primary); }
+      .uxa-notif-dot { position: absolute; top: -5px; right: -5px; background: #DC2626; color: white; font-size: 9px; font-weight: 700; border-radius: 999px; min-width: 15px; height: 15px; display: flex; align-items: center; justify-content: center; padding: 0 3px; }
+      .uxa-notif-panel { position: absolute; top: 42px; right: 0; width: 320px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); z-index: 70; overflow: hidden; }
+      .uxa-notif-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 700; }
+      .uxa-notif-head button { border: none; background: transparent; color: var(--primary); font-size: 11px; font-weight: 600; }
+      .uxa-notif-list { max-height: 320px; overflow-y: auto; }
+      .uxa-notif-item { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+      .uxa-notif-item:last-child { border-bottom: none; }
+      .uxa-notif-item.unread { background: var(--primary-soft); }
+      .uxa-notif-item p { margin: 0 0 3px; font-size: 12px; }
+      .uxa-notif-item span { font-size: 10.5px; color: var(--text-faint); }
+
+      /* Trial banner */
+      .uxa-trial-banner { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: var(--radius-sm); background: var(--primary-soft); color: var(--primary); font-size: 12.5px; margin-bottom: 16px; }
+      .uxa-trial-banner.expired { background: #FEE2E2; color: #B91C1C; }
+      .uxa-trial-banner span { flex: 1; }
+      .uxa-trial-banner button { border: 1px solid currentColor; background: transparent; color: inherit; border-radius: 999px; padding: 4px 12px; font-size: 11.5px; font-weight: 600; }
+
+      /* Billing */
+      .uxa-current-plan { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+      .uxa-current-plan-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-faint); }
+      .uxa-current-plan h2 { margin: 2px 0 6px; font-size: 20px; }
+      .uxa-current-plan-meta { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-muted); }
+      .uxa-current-plan-meta .uxa-text-warn { color: #D97706; font-weight: 600; }
+      .uxa-current-plan-actions { display: flex; gap: 8px; }
+      .uxa-cycle-toggle { display: flex; border: 1px solid var(--border); border-radius: 999px; padding: 2px; }
+      .uxa-cycle-toggle button { border: none; background: transparent; padding: 5px 14px; border-radius: 999px; font-size: 11.5px; font-weight: 600; color: var(--text-muted); }
+      .uxa-cycle-toggle button.active { background: var(--primary); color: white; }
+      .uxa-plans-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 12px; }
+      .uxa-plan-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; background: var(--bg); display: flex; flex-direction: column; gap: 8px; }
+      .uxa-plan-card.current { border-color: var(--primary); background: var(--primary-soft); }
+      .uxa-plan-card.enterprise { border-color: #7C3AED; }
+      .uxa-plan-card h4 { margin: 4px 0 0; font-size: 15px; }
+      .uxa-plan-card p { font-size: 11.5px; color: var(--text-muted); margin: 0; min-height: 32px; }
+      .uxa-plan-price { font-size: 22px; font-weight: 800; }
+      .uxa-plan-price span { font-size: 12px; font-weight: 500; color: var(--text-muted); }
+      .uxa-plan-features { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 5px; flex: 1; }
+      .uxa-plan-features li { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-muted); }
+      .uxa-plan-features li svg { color: var(--accent); flex-shrink: 0; }
+
+      /* Admin subscription management */
+      .uxa-admin-actions-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+      .uxa-admin-actions-grid .uxa-inline-form { flex-wrap: wrap; }
+      .uxa-modal.wide { width: 640px; max-width: 94vw; max-height: 88vh; overflow-y: auto; }
 
       /* Auth */
       .uxa-auth-loading { display: flex; align-items: center; justify-content: center; height: 100vh; color: var(--primary); }
