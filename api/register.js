@@ -11,6 +11,7 @@ import bcrypt from "bcryptjs";
 import { signSession, setSessionCookie } from "./_auth.js";
 import { getSupabase } from "./_supabase.js";
 import { buildInitialState } from "./_seedData.js";
+import { ensureSubscription } from "./_billing.js";
 
 const USERNAME_RE = /^[a-z0-9_.-]{3,32}$/i;
 
@@ -73,6 +74,12 @@ export default async function handler(req, res) {
       { onConflict: "id" }
     );
   } catch (e) { /* non-fatal — user just starts with an empty workspace */ }
+
+  // Auto-assign the default trial package (business rule: every new user
+  // starts on the trial unless another package is configured as default).
+  try {
+    await ensureSubscription(supabase, created.id);
+  } catch (e) { /* non-fatal — /api/subscription will lazily create it on first load */ }
 
   const token = signSession({ uid: created.id, username: created.username, isAdmin: false }, secret);
   setSessionCookie(res, token);
