@@ -548,6 +548,25 @@ function formatMinutes(min) {
 function severityMeta(sevId, severities) {
   return severities.find((s) => s.id === sevId) || severities[severities.length - 1];
 }
+// Lightens (positive percent) or darkens (negative percent) a hex color toward white/black.
+function shadeColor(hex, percent) {
+  if (!hex || !/^#[0-9a-fA-F]{6}$/.test(hex)) return hex;
+  const f = parseInt(hex.slice(1), 16);
+  const t = percent < 0 ? 0 : 255;
+  const p = Math.abs(percent) / 100;
+  const R = f >> 16, G = (f >> 8) & 0x00ff, B = f & 0x0000ff;
+  return "#" + (0x1000000 + (Math.round((t - R) * p) + R) * 0x10000 + (Math.round((t - G) * p) + G) * 0x100 + (Math.round((t - B) * p) + B)).toString(16).slice(1);
+}
+// Builds the CSS custom properties for the admin-chosen primary color, adapted for the active theme.
+function themeVars(primaryColor, theme) {
+  if (!primaryColor) return {};
+  return {
+    "--primary": primaryColor,
+    "--primary-dark": shadeColor(primaryColor, -18),
+    "--primary-soft": theme === "dark" ? shadeColor(primaryColor, -74) : shadeColor(primaryColor, 90),
+  };
+}
+
 function relTime(ts) {
   const diff = Date.now() - ts;
   const m = Math.floor(diff / 60000);
@@ -631,8 +650,8 @@ async function saveAppState(state) {
 
 /* ============================== APP ROOT ============================== */
 
-function AppShell({ username, onLogout, isAdmin, seedDemo }) {
-  const [theme, setTheme] = useState("dark");
+function AppShell({ username, onLogout, isAdmin, seedDemo, primaryColor, defaultTheme, onAppearanceChange }) {
+  const [theme, setTheme] = useState(defaultTheme || "dark");
   const [projects, setProjects] = useState(() => (seedDemo ? makeSeedProjects() : []));
   const [screenTypes, setScreenTypes] = useState(SCREEN_TYPE_DEFAULTS);
   const [areas, setAreas] = useState(AREA_DEFAULTS);
@@ -1008,7 +1027,7 @@ function AppShell({ username, onLogout, isAdmin, seedDemo }) {
   }, [projects, screensFlat, issuesFlat, severities, screenTypes]);
 
   return (
-    <div className={`uxa-root ${theme}`}>
+    <div className={`uxa-root ${theme}`} style={themeVars(primaryColor, theme)}>
       <StyleSheet />
       <div className="uxa-shell">
         <Sidebar view={view} setView={setView} theme={theme} setTheme={setTheme} setCommandOpen={setCommandOpen} username={username} onLogout={onLogout} isAdmin={isAdmin} />
@@ -1087,7 +1106,8 @@ function AppShell({ username, onLogout, isAdmin, seedDemo }) {
               )
             )}
             {view === "settings" && (
-              <SettingsView screenTypes={screenTypes} setScreenTypes={setScreenTypes} areas={areas} setAreas={setAreas} severities={severities} setSeverities={setSeverities} showToast={showToast} />
+              <SettingsView screenTypes={screenTypes} setScreenTypes={setScreenTypes} areas={areas} setAreas={setAreas} severities={severities} setSeverities={setSeverities} showToast={showToast}
+                isAdmin={isAdmin} primaryColor={primaryColor} defaultTheme={defaultTheme} onAppearanceChange={onAppearanceChange} />
             )}
             {view === "reports" && (
               <ReportsView projects={projects} issuesFlat={issuesFlat} screensFlat={screensFlat} severities={severities} showToast={showToast}
@@ -1184,6 +1204,19 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [authError, setAuthError] = useState("");
   const [noBackend, setNoBackend] = useState(false);
+  const [appearance, setAppearance] = useState({ primaryColor: "#3B5BDB", defaultTheme: "dark" });
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/settings");
+        if (res.ok) {
+          const data = await res.json();
+          setAppearance({ primaryColor: data.primaryColor || "#3B5BDB", defaultTheme: data.defaultTheme || "dark" });
+        }
+      } catch (e) { /* keep defaults — no backend */ }
+    })();
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -1265,9 +1298,12 @@ export default function App() {
     setAuthState("landing");
   }
 
+  const preAuthTheme = appearance.defaultTheme || "dark";
+  const preAuthVars = themeVars(appearance.primaryColor, preAuthTheme);
+
   if (authState === "checking") {
     return (
-      <div className="uxa-root dark">
+      <div className={`uxa-root ${preAuthTheme}`} style={preAuthVars}>
         <StyleSheet />
         <div className="uxa-auth-loading"><Loader2 size={22} className="spin" /></div>
       </div>
@@ -1276,7 +1312,7 @@ export default function App() {
 
   if (authState === "landing") {
     return (
-      <div className="uxa-root dark">
+      <div className={`uxa-root ${preAuthTheme}`} style={preAuthVars}>
         <StyleSheet />
         <LandingPage onSignIn={() => { setAuthError(""); setAuthState("login"); }} onGetStarted={() => { setAuthError(""); setAuthState("register"); }} />
       </div>
@@ -1285,7 +1321,7 @@ export default function App() {
 
   if (authState === "login" || authState === "register") {
     return (
-      <div className="uxa-root dark">
+      <div className={`uxa-root ${preAuthTheme}`} style={preAuthVars}>
         <StyleSheet />
         {authState === "login" ? (
           <LoginScreen onLogin={login} error={authError} onSwitch={() => { setAuthError(""); setAuthState("register"); }} onBack={() => { setAuthError(""); setAuthState("landing"); }} />
@@ -1296,7 +1332,13 @@ export default function App() {
     );
   }
 
-  return <AppShell username={username} isAdmin={isAdmin} onLogout={username ? logout : null} seedDemo={noBackend} />;
+  return (
+    <AppShell
+      username={username} isAdmin={isAdmin} onLogout={username ? logout : null} seedDemo={noBackend}
+      primaryColor={appearance.primaryColor} defaultTheme={appearance.defaultTheme}
+      onAppearanceChange={(patch) => setAppearance((a) => ({ ...a, ...patch }))}
+    />
+  );
 }
 
 const FALLBACK_PACKAGES = [
@@ -2577,7 +2619,7 @@ function IssuePanel({ data, areas, severities, nextIssueId, onClose, onSave }) {
 
 /* ============================== SETTINGS ============================== */
 
-function SettingsView({ screenTypes, setScreenTypes, areas, setAreas, severities, setSeverities, showToast }) {
+function SettingsView({ screenTypes, setScreenTypes, areas, setAreas, severities, setSeverities, showToast, isAdmin, primaryColor, defaultTheme, onAppearanceChange }) {
   const [tab, setTab] = useState("types");
 
   return (
@@ -2586,10 +2628,69 @@ function SettingsView({ screenTypes, setScreenTypes, areas, setAreas, severities
         <button className={tab === "types" ? "active" : ""} onClick={() => setTab("types")}>Screen types</button>
         <button className={tab === "areas" ? "active" : ""} onClick={() => setTab("areas")}>Areas</button>
         <button className={tab === "severity" ? "active" : ""} onClick={() => setTab("severity")}>Severity</button>
+        {isAdmin && <button className={tab === "appearance" ? "active" : ""} onClick={() => setTab("appearance")}>Appearance</button>}
       </div>
       {tab === "types" && <ScreenTypeSettings screenTypes={screenTypes} setScreenTypes={setScreenTypes} showToast={showToast} />}
       {tab === "areas" && <AreaSettings areas={areas} setAreas={setAreas} showToast={showToast} />}
       {tab === "severity" && <SeveritySettings severities={severities} setSeverities={setSeverities} showToast={showToast} />}
+      {tab === "appearance" && isAdmin && <AppearanceSettings primaryColor={primaryColor} defaultTheme={defaultTheme} onAppearanceChange={onAppearanceChange} showToast={showToast} />}
+    </div>
+  );
+}
+
+function AppearanceSettings({ primaryColor, defaultTheme, onAppearanceChange, showToast }) {
+  const [color, setColor] = useState(primaryColor || "#3B5BDB");
+  const [theme, setThemeChoice] = useState(defaultTheme || "dark");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function save() {
+    setBusy(true); setError("");
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ primaryColor: color, defaultTheme: theme }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Could not save."); setBusy(false); return; }
+      onAppearanceChange({ primaryColor: color, defaultTheme: theme });
+      showToast("Appearance saved", "check");
+    } catch (e) { setError("Could not reach the server."); }
+    setBusy(false);
+  }
+
+  return (
+    <div>
+      <p className="uxa-text-muted" style={{ fontSize: 12, marginTop: -4, marginBottom: 16 }}>
+        Controls branding across the whole app — the landing page, login screen, and every account's UI. Each person can still switch between light and dark mode themselves; this just sets the starting default and the brand color used in both.
+      </p>
+      <div className="uxa-branding-grid">
+        <div className="uxa-form-field">
+          <label>Primary color</label>
+          <div className="uxa-color-row">
+            <input type="color" value={color} onChange={(e) => setColor(e.target.value)} />
+            <input type="text" value={color} onChange={(e) => setColor(e.target.value)} placeholder="#3B5BDB" style={{ width: 100 }} />
+          </div>
+        </div>
+        <div className="uxa-form-field">
+          <label>Default theme</label>
+          <div className="uxa-cycle-toggle">
+            <button className={theme === "light" ? "active" : ""} onClick={() => setThemeChoice("light")}>Light</button>
+            <button className={theme === "dark" ? "active" : ""} onClick={() => setThemeChoice("dark")}>Dark</button>
+          </div>
+        </div>
+      </div>
+      <div className="uxa-appearance-preview" style={themeVars(color, theme)} data-theme={theme}>
+        <div className="uxa-appearance-preview-inner">
+          <span className="uxa-brand-mark" style={{ width: 26, height: 26 }}><Layers size={14} /></span>
+          <button className="uxa-btn primary">Primary button</button>
+          <span className="uxa-chip active">Active chip</span>
+        </div>
+      </div>
+      {error && <div className="uxa-login-error" style={{ marginTop: 10 }}><Info size={13} /> {error}</div>}
+      <button className="uxa-btn primary" style={{ marginTop: 14 }} disabled={busy} onClick={save}>
+        {busy ? <Loader2 size={14} className="spin" /> : <Save size={14} />} Save appearance
+      </button>
     </div>
   );
 }
@@ -5341,6 +5442,13 @@ function StyleSheet() {
       .uxa-settings-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
       .uxa-settings-tabs button { padding: 8px 14px; border: none; background: transparent; font-size: 12.5px; font-weight: 600; color: var(--text-muted); border-bottom: 2px solid transparent; }
       .uxa-settings-tabs button.active { color: var(--primary); border-color: var(--primary); }
+      .uxa-color-row { display: flex; align-items: center; gap: 8px; }
+      .uxa-color-row input[type="color"] { width: 42px; height: 34px; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); }
+      .uxa-appearance-preview { border-radius: var(--radius-sm); padding: 16px; margin-top: 14px; border: 1px solid var(--border); }
+      .uxa-appearance-preview[data-theme="light"] { background: #F8FAFC; }
+      .uxa-appearance-preview[data-theme="dark"] { background: #0B1220; }
+      .uxa-appearance-preview-inner { display: flex; align-items: center; gap: 10px; }
+      .uxa-appearance-preview .uxa-brand-mark { background: var(--primary); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; }
 
       /* Workspace */
       .uxa-project-summary { padding: 0; overflow: hidden; }

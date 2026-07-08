@@ -188,6 +188,22 @@ create table if not exists leads (
 alter table leads enable row level security;
 
 -- ---------------------------------------------------------------------
+-- GLOBAL APPEARANCE SETTINGS
+-- A single row of app-wide branding: primary color and default theme.
+-- Public to read (the landing/login screens need it before anyone is
+-- logged in); only the admin can change it (Settings -> Appearance).
+-- ---------------------------------------------------------------------
+create table if not exists app_settings (
+  id text primary key default 'global',
+  primary_color text not null default '#3B5BDB',
+  default_theme text not null default 'dark',
+  updated_at timestamptz not null default now()
+);
+insert into app_settings (id, primary_color, default_theme) values ('global', '#3B5BDB', 'dark')
+on conflict (id) do nothing;
+alter table app_settings enable row level security;
+
+-- ---------------------------------------------------------------------
 -- ONE-TIME MIGRATION (only needed if you had this app running BEFORE the
 -- registration/multi-user update, i.e. you already have data saved under
 -- app_state.id = 'default'). Run this once to move your existing admin
