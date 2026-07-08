@@ -509,7 +509,7 @@ function AppShell({ username, onLogout, isAdmin, seedDemo }) {
                 <Gift size={15} />
                 <span>
                   {billingSummary.status === "expired"
-                    ? "Your free trial has ended. Upgrade to keep using Auditlane without interruption."
+                    ? "Your free trial has ended. Upgrade to keep using Annotex without interruption."
                     : `Your free trial ends in ${billingSummary.trialDaysRemaining} day${billingSummary.trialDaysRemaining === 1 ? "" : "s"}.`}
                 </span>
                 <button onClick={() => setView("billing")}>View Billing</button>
@@ -790,7 +790,7 @@ function LandingPage({ onSignIn, onGetStarted }) {
   return (
     <div className="uxa-landing">
       <nav className="uxa-landing-nav">
-        <div className="uxa-brand"><div className="uxa-brand-mark"><Layers size={16} strokeWidth={2.5} /></div><span>Auditlane</span></div>
+        <div className="uxa-brand"><div className="uxa-brand-mark"><Layers size={16} strokeWidth={2.5} /></div><span>Annotex</span></div>
         <div className="uxa-landing-nav-links">
           <a href="#features">Features</a>
           <a href="#pricing">Pricing</a>
@@ -804,7 +804,7 @@ function LandingPage({ onSignIn, onGetStarted }) {
       <header className="uxa-landing-hero">
         <div className="uxa-landing-tag"><Gift size={13} /> 15-day free trial · no credit card required</div>
         <h1>Run UX audits your clients actually read.</h1>
-        <p>Auditlane is a structured audit workspace for UX designers and consultants — log findings screen by screen, get AI-assisted recommendations, and ship a polished client report in minutes.</p>
+        <p>Annotex is a structured audit workspace for UX designers and consultants — log findings screen by screen, get AI-assisted recommendations, and ship a polished client report in minutes.</p>
         <div className="uxa-landing-hero-actions">
           <button className="uxa-btn primary lg" onClick={onGetStarted}><Sparkles size={15} /> Start free trial</button>
           <button className="uxa-btn lg" onClick={onSignIn}>Sign in</button>
@@ -856,7 +856,7 @@ function LandingPage({ onSignIn, onGetStarted }) {
                     {(p.features || []).map((f, i) => <li key={i}><Check size={12} /> {f}</li>)}
                   </ul>
                   {p.is_enterprise ? (
-                    <a className="uxa-btn primary full" href="mailto:hello@auditlane.app?subject=Enterprise%20plan%20inquiry">Contact Sales</a>
+                    <a className="uxa-btn primary full" href="mailto:hello@annotex.app?subject=Enterprise%20plan%20inquiry">Contact Sales</a>
                   ) : (
                     <button className="uxa-btn primary full" onClick={onGetStarted}>{p.is_trial ? "Start free trial" : "Get started"}</button>
                   )}
@@ -868,8 +868,8 @@ function LandingPage({ onSignIn, onGetStarted }) {
       </section>
 
       <footer className="uxa-landing-footer">
-        <div className="uxa-brand"><div className="uxa-brand-mark"><Layers size={14} strokeWidth={2.5} /></div><span>Auditlane</span></div>
-        <span>© {new Date().getFullYear()} Auditlane. All rights reserved.</span>
+        <div className="uxa-brand"><div className="uxa-brand-mark"><Layers size={14} strokeWidth={2.5} /></div><span>Annotex</span></div>
+        <span>© {new Date().getFullYear()} Annotex. All rights reserved.</span>
       </footer>
     </div>
   );
@@ -894,7 +894,7 @@ function LoginScreen({ onLogin, error, onSwitch, onBack }) {
       <form className="uxa-login-card" onSubmit={handleSubmit}>
         {onBack && <button type="button" className="uxa-auth-back" onClick={onBack}><ArrowLeft size={13} /> Back to home</button>}
         <div className="uxa-brand-mark lg"><Layers size={20} strokeWidth={2.5} /></div>
-        <h2>Sign in to Auditlane</h2>
+        <h2>Sign in to Annotex</h2>
         <p>UX Audit Management</p>
 
         <div className="uxa-form-field">
@@ -947,7 +947,7 @@ function RegisterScreen({ onRegister, error, onSwitch, onBack }) {
       <form className="uxa-login-card" onSubmit={handleSubmit}>
         {onBack && <button type="button" className="uxa-auth-back" onClick={onBack}><ArrowLeft size={13} /> Back to home</button>}
         <div className="uxa-brand-mark lg"><Layers size={20} strokeWidth={2.5} /></div>
-        <h2>Create your Auditlane account</h2>
+        <h2>Create your Annotex account</h2>
         <p>Your projects stay private to your login</p>
 
         <div className="uxa-form-field">
@@ -1000,7 +1000,7 @@ function Sidebar({ view, setView, theme, setTheme, setCommandOpen, username, onL
     <aside className="uxa-sidebar">
       <div className="uxa-brand">
         <div className="uxa-brand-mark"><Layers size={16} strokeWidth={2.5} /></div>
-        <span>Auditlane</span>
+        <span>Annotex</span>
       </div>
       <nav className="uxa-nav">
         {items.map((it) => (
@@ -3063,7 +3063,7 @@ function ExportCenter({ ctx, projects, screensFlat, issuesFlat, severities, area
     clientName: lockedProject?.client || "",
     reportTitle: "UX Audit Report",
     preparedBy: "", reviewer: "", reportDate: new Date().toISOString().slice(0, 10),
-    confidential: true, footerText: "Prepared with Auditlane", pageNumbers: true,
+    confidential: true, footerText: "Prepared with Annotex", pageNumbers: true,
   });
   const [progress, setProgress] = useState({ pct: 0, label: "" });
   const [results, setResults] = useState([]);
@@ -3144,7 +3144,7 @@ function ExportCenter({ ctx, projects, screensFlat, issuesFlat, severities, area
   }
   function emailReport(file) {
     const subject = encodeURIComponent(`${branding.reportTitle} — ${branding.projectName}`);
-    const body = encodeURIComponent(`Hi,\n\nSharing the ${branding.reportTitle} for ${branding.projectName}.\nPlease find it attached — download it from Auditlane and attach the file (${file.filename}) manually, since browsers can't auto-attach files to emails.\n\nBest,\n${branding.preparedBy || ""}`);
+    const body = encodeURIComponent(`Hi,\n\nSharing the ${branding.reportTitle} for ${branding.projectName}.\nPlease find it attached — download it from Annotex and attach the file (${file.filename}) manually, since browsers can't auto-attach files to emails.\n\nBest,\n${branding.preparedBy || ""}`);
     window.open(`mailto:?subject=${subject}&body=${body}`);
   }
 
@@ -3700,7 +3700,7 @@ function buildPPTXFile(model, include, severities) {
     `<div class="slide dark"><div class="eyebrow">Critical Issues</div><h2>Requires immediate attention</h2><ul>${criticalCards}</ul><div class="pagenum">7</div></div>`,
     `<div class="slide light"><div class="eyebrow">High Priority Issues</div><h2>Address in next sprint</h2><ul>${highCards}</ul><div class="pagenum">8</div></div>`,
     `<div class="slide dark"><div class="eyebrow">Recommendations</div><h2>Suggested improvements</h2><ul>${recCards || "<li>Add recommendations to issues to populate this slide.</li>"}</ul><div class="pagenum">9</div></div>`,
-    `<div class="slide light"><div class="eyebrow">Next Steps</div><h2>Where to go from here</h2><ul><li>Triage and assign critical &amp; high severity issues</li><li>Review AI-generated design prompts for quick redesign iteration</li><li>Re-audit affected screens after fixes ship</li><li>Track progress in Auditlane</li></ul><div class="pagenum">10</div></div>`,
+    `<div class="slide light"><div class="eyebrow">Next Steps</div><h2>Where to go from here</h2><ul><li>Triage and assign critical &amp; high severity issues</li><li>Review AI-generated design prompts for quick redesign iteration</li><li>Re-audit affected screens after fixes ship</li><li>Track progress in Annotex</li></ul><div class="pagenum">10</div></div>`,
   ];
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHTML(b.reportTitle)}</title>${slideStyle}</head><body>${slides.join("")}</body></html>`;
   const blob = new Blob([html], { type: "text/html" });

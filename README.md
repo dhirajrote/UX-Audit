@@ -1,4 +1,4 @@
-# Auditlane — UX Audit Management App
+# Annotex — UX Audit Management App
 
 A single-file React application for running structured UX/UI audits: project workspaces, module/screen trees, issue tracking with AI-assisted recommendations, severity/area configuration, reporting, and a full multi-format Export Center (PDF, XLSX, CSV, DOCX, PPTX, JSON).
 

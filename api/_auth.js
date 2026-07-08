@@ -16,7 +16,7 @@
 
 import crypto from "node:crypto";
 
-const COOKIE_NAME = "auditlane_session";
+const COOKIE_NAME = "annotex_session";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 export const ADMIN_UID = "admin";
 
