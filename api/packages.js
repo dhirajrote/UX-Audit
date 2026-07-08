@@ -52,6 +52,7 @@ export default async function handler(req, res) {
         trial_days: b.trial_days ?? 15,
         status: b.status || "active",
         display_order: b.display_order ?? 0,
+        feature_flags: b.feature_flags || {},
       })
       .select("*")
       .single();
@@ -70,7 +71,7 @@ export default async function handler(req, res) {
     [
       "name", "description", "price", "yearly_price", "billing_cycle", "features",
       "user_limit", "storage_limit", "is_trial", "is_enterprise", "is_default",
-      "trial_days", "status", "display_order",
+      "trial_days", "status", "display_order", "feature_flags",
     ].forEach((key) => { if (key in b) patch[key] = b[key]; });
 
     const { data, error } = await supabase.from("packages").update(patch).eq("id", b.id).select("*").single();

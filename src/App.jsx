@@ -9,7 +9,7 @@ import {
   FileText, FileSpreadsheet, FileType2, Presentation, Braces, Building2,
   Link2, Mail, RotateCcw, ExternalLink, Printer, CheckSquare, Square,
   CalendarRange, UserCircle2, Image as ImageIcon, ArrowLeft, Info, LogOut, Lock, Eye, EyeOff, Upload, FileUp, ListChecks, Users2, KeyRound, ShieldAlert, Bell, CreditCard, Package, TrendingDown, Gem, PauseCircle, PlayCircle, ReceiptText, Gift,
-  LayoutTemplate, Star, Copy, Archive, History, Gauge, Tag, FileJson, ChevronUp, Layers3
+  LayoutTemplate, Star, Copy, Archive, History, Gauge, Tag, FileJson, ChevronUp, Layers3, Contact2
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -50,6 +50,10 @@ const uid = (p = "id") => `${p}_${Math.random().toString(36).slice(2, 9)}`;
 
 /* ---- Audit Templates: checklist item helper + built-in template library ---- */
 const TEMPLATE_CATEGORIES = ["UX", "UI", "Accessibility", "Mobile", "Web", "SaaS", "Ecommerce", "Healthcare", "Banking", "Dashboard", "AI Products"];
+const GATED_FEATURES = [
+  { id: "audit_templates", label: "Audit Templates", description: "Checklist library, custom template builder, and AI-scored audit runs." },
+];
+
 const SCORING_MODELS = [
   { id: "percentage", label: "Percentage" },
   { id: "five_star", label: "5-Star" },
@@ -653,24 +657,33 @@ function AppShell({ username, onLogout, isAdmin, seedDemo }) {
   const [editingProject, setEditingProject] = useState(null);
   const [exportCtx, setExportCtx] = useState(null);
   const openExport = useCallback((ctx) => setExportCtx(ctx), []);
-  const [billingSummary, setBillingSummary] = useState(null); // { status, trialDaysRemaining, packageName } | null
+  const [billingSummary, setBillingSummary] = useState(null); // { status, trialDaysRemaining, packageName, featureFlags } | null
+  const [billingChecked, setBillingChecked] = useState(false); // true once we've asked the backend (or confirmed there isn't one)
 
   useEffect(() => {
-    if (isAdmin) return;
+    if (isAdmin) { setBillingChecked(true); return; }
     (async () => {
       try {
         const res = await fetch("/api/subscription");
-        if (!res.ok) return;
+        if (!res.ok) { setBillingChecked(true); return; }
         const data = await res.json();
-        if (data.isAdminAccount) return;
+        if (data.isAdminAccount) { setBillingChecked(true); return; }
         setBillingSummary({
           status: data.subscription?.status || null,
           trialDaysRemaining: data.trialDaysRemaining,
           packageName: data.package?.name || null,
+          featureFlags: data.package?.feature_flags || {},
         });
-      } catch (e) { /* no backend — no banner */ }
+      } catch (e) { /* no backend — treat as unrestricted (e.g. Claude artifact preview) */ }
+      setBillingChecked(true);
     })();
   }, [isAdmin]);
+
+  // Audit Templates is a premium feature: the admin account and any account
+  // on a package with feature_flags.audit_templates=true get it. If there's
+  // no backend at all (billingSummary never populates), default to open so
+  // this still works as a standalone Claude artifact preview.
+  const hasTemplatesAccess = isAdmin || !billingSummary || !!billingSummary.featureFlags?.audit_templates;
 
   const showToast = useCallback((msg, icon) => {
     setToast({ msg, icon, id: uid("t") });
@@ -1047,7 +1060,9 @@ function AppShell({ username, onLogout, isAdmin, seedDemo }) {
               />
             )}
             {view === "templates" && (
-              activeRunId ? (
+              !hasTemplatesAccess ? (
+                <TemplatesLockedView onGoToBilling={() => setView("billing")} />
+              ) : activeRunId ? (
                 <AuditRunView
                   run={auditRuns.find((r) => r.id === activeRunId)}
                   templates={templates}
@@ -1089,6 +1104,9 @@ function AppShell({ username, onLogout, isAdmin, seedDemo }) {
             )}
             {view === "admin-subscriptions" && isAdmin && (
               <AdminSubscriptionsView showToast={showToast} />
+            )}
+            {view === "leads" && isAdmin && (
+              <LeadsAdminView showToast={showToast} />
             )}
           </div>
         </div>
@@ -1299,6 +1317,7 @@ const LANDING_FEATURES = [
 function LandingPage({ onSignIn, onGetStarted }) {
   const [packages, setPackages] = useState(null);
   const [cycle, setCycle] = useState("monthly");
+  const [leadModal, setLeadModal] = useState(null); // { interestedPackage } | null
 
   useEffect(() => {
     (async () => {
@@ -1323,6 +1342,7 @@ function LandingPage({ onSignIn, onGetStarted }) {
         <div className="uxa-landing-nav-links">
           <a href="#features">Features</a>
           <a href="#pricing">Pricing</a>
+          <a href="#" onClick={(e) => { e.preventDefault(); setLeadModal({ interestedPackage: "" }); }}>Talk to sales</a>
         </div>
         <div className="uxa-landing-nav-actions">
           <button className="uxa-btn" onClick={onSignIn}>Sign in</button>
@@ -1385,7 +1405,7 @@ function LandingPage({ onSignIn, onGetStarted }) {
                     {(p.features || []).map((f, i) => <li key={i}><Check size={12} /> {f}</li>)}
                   </ul>
                   {p.is_enterprise ? (
-                    <a className="uxa-btn primary full" href="mailto:hello@annotex.app?subject=Enterprise%20plan%20inquiry">Contact Sales</a>
+                    <button className="uxa-btn primary full" onClick={() => setLeadModal({ interestedPackage: p.name })}>Contact Sales</button>
                   ) : (
                     <button className="uxa-btn primary full" onClick={onGetStarted}>{p.is_trial ? "Start free trial" : "Get started"}</button>
                   )}
@@ -1400,6 +1420,74 @@ function LandingPage({ onSignIn, onGetStarted }) {
         <div className="uxa-brand"><div className="uxa-brand-mark"><Layers size={14} strokeWidth={2.5} /></div><span>Annotex</span></div>
         <span>© {new Date().getFullYear()} Annotex. All rights reserved.</span>
       </footer>
+
+      {leadModal && (
+        <LeadCaptureModal
+          interestedPackage={leadModal.interestedPackage}
+          packages={packages}
+          onClose={() => setLeadModal(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function LeadCaptureModal({ interestedPackage, packages, onClose }) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [company, setCompany] = useState("");
+  const [message, setMessage] = useState("");
+  const [pkg, setPkg] = useState(interestedPackage || "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+
+  async function submit() {
+    if (!name.trim() || !email.trim()) { setError("Name and email are required."); return; }
+    setBusy(true); setError("");
+    try {
+      const res = await fetch("/api/leads", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, company, message, interestedPackage: pkg || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Could not send that — try again."); setBusy(false); return; }
+      setDone(true);
+    } catch (e) { setError("Could not reach the server."); setBusy(false); }
+  }
+
+  return (
+    <div className="uxa-modal-overlay" onClick={onClose}>
+      <div className="uxa-modal" onClick={(e) => e.stopPropagation()}>
+        {done ? (
+          <>
+            <div className="uxa-modal-head"><h3>Thanks — we got it</h3><button onClick={onClose}><X size={16} /></button></div>
+            <p className="uxa-text-muted">Someone from our team will follow up with you shortly.</p>
+            <div className="uxa-modal-actions"><button className="uxa-btn primary" onClick={onClose}>Close</button></div>
+          </>
+        ) : (
+          <>
+            <div className="uxa-modal-head"><h3>Talk to us</h3><button onClick={onClose}><X size={16} /></button></div>
+            <div className="uxa-form-field"><label>Name *</label><input autoFocus value={name} onChange={(e) => setName(e.target.value)} /></div>
+            <div className="uxa-form-field"><label>Work email *</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+            <div className="uxa-form-field"><label>Company</label><input value={company} onChange={(e) => setCompany(e.target.value)} /></div>
+            {packages && (
+              <div className="uxa-form-field"><label>Interested in</label>
+                <select value={pkg} onChange={(e) => setPkg(e.target.value)}>
+                  <option value="">Not sure yet</option>
+                  {packages.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+                </select>
+              </div>
+            )}
+            <div className="uxa-form-field"><label>Message</label><textarea rows={3} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Team size, use case, timeline…" /></div>
+            {error && <div className="uxa-login-error"><Info size={13} /> {error}</div>}
+            <div className="uxa-modal-actions">
+              <button className="uxa-btn" onClick={onClose}>Cancel</button>
+              <button className="uxa-btn primary" disabled={busy} onClick={submit}>{busy ? <Loader2 size={14} className="spin" /> : <Contact2 size={14} />} Send</button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -1524,6 +1612,7 @@ function Sidebar({ view, setView, theme, setTheme, setCommandOpen, username, onL
       { id: "users", label: "Users", icon: Users2 },
       { id: "packages", label: "Packages", icon: Package },
       { id: "admin-subscriptions", label: "Subscriptions", icon: ReceiptText },
+      { id: "leads", label: "Leads", icon: Contact2 },
     ] : []),
   ];
   return (
@@ -1564,7 +1653,7 @@ function TopBar({ view, activeProject, setCommandOpen, onNewProject, isAdmin }) 
   const titles = {
     dashboard: "Dashboard", projects: "Projects", workspace: activeProject ? activeProject.name : "Audit Workspace",
     settings: "Settings", reports: "Reports", users: "Users", billing: "Billing",
-    packages: "Packages", "admin-subscriptions": "Subscriptions", templates: "Audit Templates",
+    packages: "Packages", "admin-subscriptions": "Subscriptions", templates: "Audit Templates", leads: "Leads",
   };
   const subtitles = {
     dashboard: "Audit program overview across all projects", projects: "All client audit engagements",
@@ -1575,6 +1664,7 @@ function TopBar({ view, activeProject, setCommandOpen, onNewProject, isAdmin }) 
     packages: "Configure subscription packages (admin only)",
     "admin-subscriptions": "Manage every user's subscription and view analytics (admin only)",
     templates: "Standardized checklists for consistent, repeatable UX reviews",
+    leads: "Contacts and demo requests from the landing page (admin only)",
   };
   return (
     <header className="uxa-topbar">
@@ -3059,11 +3149,13 @@ function PackageEditModal({ pkg, onClose, onSaved }) {
     is_trial: pkg?.is_trial || false, is_enterprise: pkg?.is_enterprise || false,
     is_default: pkg?.is_default || false, trial_days: pkg?.trial_days ?? 15,
     status: pkg?.status || "active", display_order: pkg?.display_order ?? 0,
+    feature_flags: pkg?.feature_flags || {},
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   function set(key, val) { setForm((f) => ({ ...f, [key]: val })); }
+  function toggleFeatureFlag(id) { setForm((f) => ({ ...f, feature_flags: { ...f.feature_flags, [id]: !f.feature_flags[id] } })); }
 
   async function save() {
     if (!form.name.trim()) { setError("Name is required."); return; }
@@ -3079,6 +3171,7 @@ function PackageEditModal({ pkg, onClose, onSaved }) {
       storage_limit: form.storage_limit || null,
       is_trial: form.is_trial, is_enterprise: form.is_enterprise, is_default: form.is_default,
       trial_days: Number(form.trial_days) || 15, status: form.status, display_order: Number(form.display_order) || 0,
+      feature_flags: form.feature_flags,
     };
     try {
       const res = await fetch("/api/packages", {
@@ -3115,6 +3208,17 @@ function PackageEditModal({ pkg, onClose, onSaved }) {
           {form.is_trial && (
             <div className="uxa-form-field"><label>Trial days</label><input type="number" value={form.trial_days} onChange={(e) => set("trial_days", e.target.value)} /></div>
           )}
+          <div className="uxa-form-field" style={{ gridColumn: "span 3" }}>
+            <label>Gated features</label>
+            <div className="uxa-gated-features">
+              {GATED_FEATURES.map((f) => (
+                <label key={f.id} className="uxa-gated-feature-row">
+                  <input type="checkbox" checked={!!form.feature_flags[f.id]} onChange={() => toggleFeatureFlag(f.id)} />
+                  <div><strong>{f.label}</strong><span>{f.description}</span></div>
+                </label>
+              ))}
+            </div>
+          </div>
         </div>
         {error && <div className="uxa-login-error" style={{ marginTop: 8 }}><Info size={13} /> {error}</div>}
         <div className="uxa-modal-actions">
@@ -3429,7 +3533,121 @@ function SalesRequestsTab({ showToast }) {
   );
 }
 
+/* ============================== LEADS (LANDING PAGE CRM) ============================== */
+
+const LEAD_STATUSES = ["new", "contacted", "qualified", "converted", "closed"];
+
+function LeadsAdminView({ showToast }) {
+  const [leads, setLeads] = useState(null);
+  const [q, setQ] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [editingNotes, setEditingNotes] = useState(null); // lead object
+
+  const load = useCallback(async () => {
+    try { const res = await fetch("/api/leads"); if (res.ok) { const d = await res.json(); setLeads(d.leads || []); } } catch (e) { setLeads([]); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  async function updateStatus(id, status) {
+    setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, status } : l)));
+    try {
+      const res = await fetch("/api/leads", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status }) });
+      if (!res.ok) { showToast("Could not update"); load(); return; }
+    } catch (e) { showToast("Could not reach the server"); load(); }
+  }
+
+  if (!leads) return <div className="uxa-panel uxa-empty-state"><Loader2 size={20} className="spin" /></div>;
+
+  const counts = LEAD_STATUSES.reduce((acc, s) => { acc[s] = leads.filter((l) => l.status === s).length; return acc; }, {});
+  const filtered = leads.filter((l) => {
+    if (statusFilter !== "all" && l.status !== statusFilter) return false;
+    if (q && !l.name.toLowerCase().includes(q.toLowerCase()) && !l.email.toLowerCase().includes(q.toLowerCase()) && !(l.company || "").toLowerCase().includes(q.toLowerCase())) return false;
+    return true;
+  });
+
+  return (
+    <div className="uxa-panel">
+      <div className="uxa-cards-grid" style={{ marginBottom: 16 }}>
+        {LEAD_STATUSES.map((s) => (
+          <button key={s} className={`uxa-stat-card uxa-lead-stat-btn ${statusFilter === s ? "active" : ""}`} onClick={() => setStatusFilter(statusFilter === s ? "all" : s)}>
+            <div className="uxa-stat-value">{counts[s]}</div>
+            <div className="uxa-stat-label">{s.charAt(0).toUpperCase() + s.slice(1)}</div>
+          </button>
+        ))}
+      </div>
+
+      <div className="uxa-panel-head">
+        <div className="uxa-inline-search"><Search size={14} /><input placeholder="Search leads…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <span className="uxa-text-muted">{filtered.length} of {leads.length} leads</span>
+      </div>
+
+      <table className="uxa-table">
+        <thead><tr><th>Name</th><th>Email</th><th>Company</th><th>Interested in</th><th>Message</th><th>Status</th><th>Received</th><th></th></tr></thead>
+        <tbody>
+          {filtered.map((l) => (
+            <tr key={l.id}>
+              <td className="uxa-cell-strong">{l.name}</td>
+              <td>{l.email}</td>
+              <td>{l.company || "—"}</td>
+              <td>{l.interested_package || "—"}</td>
+              <td className="uxa-cell-truncate" title={l.message}>{l.message || "—"}</td>
+              <td>
+                <select value={l.status} onChange={(e) => updateStatus(l.id, e.target.value)}>
+                  {LEAD_STATUSES.map((s) => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+                </select>
+              </td>
+              <td className="uxa-text-muted">{relTime(new Date(l.created_at).getTime())}</td>
+              <td className="uxa-row-actions"><button title="Notes" onClick={() => setEditingNotes(l)}><Pencil size={13} /></button></td>
+            </tr>
+          ))}
+          {filtered.length === 0 && <tr><td colSpan={8} className="uxa-empty">No leads match.</td></tr>}
+        </tbody>
+      </table>
+
+      {editingNotes && (
+        <LeadNotesModal lead={editingNotes} onClose={() => setEditingNotes(null)} onSaved={(notes) => { setLeads((prev) => prev.map((l) => (l.id === editingNotes.id ? { ...l, notes } : l))); setEditingNotes(null); showToast("Notes saved", "check"); }} />
+      )}
+    </div>
+  );
+}
+
+function LeadNotesModal({ lead, onClose, onSaved }) {
+  const [notes, setNotes] = useState(lead.notes || "");
+  const [busy, setBusy] = useState(false);
+  async function save() {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/leads", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: lead.id, notes }) });
+      if (res.ok) onSaved(notes);
+    } catch (e) { /* ignore */ }
+    setBusy(false);
+  }
+  return (
+    <div className="uxa-modal-overlay" onClick={onClose}>
+      <div className="uxa-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="uxa-modal-head"><h3>Notes — {lead.name}</h3><button onClick={onClose}><X size={16} /></button></div>
+        <div className="uxa-form-field"><textarea rows={5} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Follow-up notes…" /></div>
+        <div className="uxa-modal-actions">
+          <button className="uxa-btn" onClick={onClose}>Cancel</button>
+          <button className="uxa-btn primary" disabled={busy} onClick={save}>{busy ? <Loader2 size={14} className="spin" /> : <Save size={14} />} Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ============================== AUDIT TEMPLATES ============================== */
+
+function TemplatesLockedView({ onGoToBilling }) {
+  return (
+    <div className="uxa-panel uxa-locked-feature">
+      <div className="uxa-locked-icon"><Lock size={22} /></div>
+      <h3>Audit Templates is a premium feature</h3>
+      <p>Upgrade to Individual or Enterprise to unlock the checklist builder, all 15 built-in templates, and AI-assisted scoring.</p>
+      <button className="uxa-btn primary" onClick={onGoToBilling}><CreditCard size={14} /> View plans</button>
+    </div>
+  );
+}
 
 function TemplatesView({ templates, projects, auditRuns, onCreate, onUpdate, onDuplicate, onArchive, onUnarchive, onDelete, onToggleFavorite, onPublish, onRestoreVersion, onImport, onStartRun, onOpenRun, onDeleteRun, showToast }) {
   const [tab, setTab] = useState("library");
@@ -3907,6 +4125,7 @@ function AssignTemplateModal({ templates, preselected, projects, onClose, onStar
               <button key={tt} className={`uxa-chip ${targetType === tt ? "active" : ""}`} onClick={() => setTargetType(tt)}>{tt === "organization" ? "Entire Organization" : tt.charAt(0).toUpperCase() + tt.slice(1)}</button>
             ))}
           </div>
+          {targetType === "screen" && <p className="uxa-text-muted" style={{ fontSize: 11, marginTop: 6 }}>"Screen" covers any screen type — popups, slide-outs, modals, drawers, and wizards included.</p>}
         </div>
 
         {targetType !== "organization" && (
@@ -3923,7 +4142,7 @@ function AssignTemplateModal({ templates, preselected, projects, onClose, onStar
             {targetType === "screen" && (
               <select value={screenId} onChange={(e) => setScreenId(e.target.value)}>
                 <option value="">Select screen…</option>
-                {screens.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {screens.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.type})</option>)}
               </select>
             )}
           </div>
@@ -5419,6 +5638,19 @@ function StyleSheet() {
       .uxa-star-row button { border: none; background: transparent; color: #F59E0B; display: flex; padding: 2px; }
       .uxa-numeric-input { width: 70px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 8px; background: var(--bg); }
       .uxa-ai-actions-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+
+      /* Premium gating + CRM */
+      .uxa-locked-feature { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 60px 20px; gap: 8px; }
+      .uxa-locked-icon { width: 48px; height: 48px; border-radius: 50%; background: var(--primary-soft); color: var(--primary); display: flex; align-items: center; justify-content: center; margin-bottom: 6px; }
+      .uxa-locked-feature h3 { margin: 0; }
+      .uxa-locked-feature p { color: var(--text-muted); font-size: 12.5px; max-width: 360px; margin: 0 0 10px; }
+      .uxa-gated-features { display: flex; flex-direction: column; gap: 8px; }
+      .uxa-gated-feature-row { display: flex; align-items: flex-start; gap: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; background: var(--bg); cursor: pointer; }
+      .uxa-gated-feature-row input { margin-top: 3px; }
+      .uxa-gated-feature-row strong { display: block; font-size: 12.5px; }
+      .uxa-gated-feature-row span { font-size: 11px; color: var(--text-muted); }
+      .uxa-lead-stat-btn { border: 1px solid var(--border); cursor: pointer; text-align: left; }
+      .uxa-lead-stat-btn.active { border-color: var(--primary); background: var(--primary-soft); }
 
       @media (max-width: 900px) {
         .uxa-sidebar { display: none; }

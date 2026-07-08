@@ -152,6 +152,42 @@ select 'Team / Enterprise', 'For agencies and organizations auditing at scale.',
 where not exists (select 1 from packages where name = 'Team / Enterprise');
 
 -- ---------------------------------------------------------------------
+-- PREMIUM FEATURE GATING
+-- feature_flags is a jsonb object of { featureKey: boolean }, editable by
+-- the admin per-package (Packages screen). Currently gated: "audit_templates".
+-- Backfill only sets a default for packages that don't already have the key,
+-- so re-running this won't clobber an admin's own toggle choices.
+-- ---------------------------------------------------------------------
+alter table packages add column if not exists feature_flags jsonb not null default '{}'::jsonb;
+
+update packages set feature_flags = feature_flags || '{"audit_templates": false}'::jsonb
+where name = 'Free Trial' and not (feature_flags ? 'audit_templates');
+
+update packages set feature_flags = feature_flags || '{"audit_templates": true}'::jsonb
+where name in ('Individual', 'Team / Enterprise') and not (feature_flags ? 'audit_templates');
+
+-- ---------------------------------------------------------------------
+-- LANDING PAGE CRM
+-- Public lead capture from the marketing landing page (logged-out visitors,
+-- so this table is written to from an unauthenticated endpoint —
+-- api/leads.js POST). No login required to submit; GET/PUT are admin-only.
+-- ---------------------------------------------------------------------
+create table if not exists leads (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  email text not null,
+  company text,
+  message text,
+  interested_package text,
+  source text not null default 'landing_page',
+  status text not null default 'new', -- 'new' | 'contacted' | 'qualified' | 'converted' | 'closed'
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table leads enable row level security;
+
+-- ---------------------------------------------------------------------
 -- ONE-TIME MIGRATION (only needed if you had this app running BEFORE the
 -- registration/multi-user update, i.e. you already have data saved under
 -- app_state.id = 'default'). Run this once to move your existing admin
