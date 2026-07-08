@@ -1,10 +1,11 @@
 // /api/packages.js
-// GET    /api/packages          -> list packages (any authenticated user sees active ones; admin sees all)
+// GET    /api/packages          -> list packages. PUBLIC (no login required) so the marketing
+//                                   landing page can show pricing; admins additionally see inactive ones.
 // POST   /api/packages          -> create a package (admin only)
 // PUT    /api/packages          -> update a package (admin only), body: { id, ...fields }
 // DELETE /api/packages?id=...   -> delete a package (admin only) — blocked if any subscription references it
 
-import { requireAuth, requireAdmin } from "./_auth.js";
+import { requireAdmin, getSessionFromRequest } from "./_auth.js";
 import { getSupabase } from "./_supabase.js";
 
 export default async function handler(req, res) {
@@ -16,10 +17,9 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "GET") {
-    const session = requireAuth(req, res);
-    if (!session) return;
+    const session = getSessionFromRequest(req); // may be null — that's fine, GET is public
     let query = supabase.from("packages").select("*").order("display_order", { ascending: true });
-    if (!session.a) query = query.eq("status", "active");
+    if (!session?.a) query = query.eq("status", "active");
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json({ packages: data || [] });

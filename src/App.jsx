@@ -632,8 +632,7 @@ function AppShell({ username, onLogout, isAdmin, seedDemo }) {
 /* ============================== AUTH GATE ============================== */
 
 export default function App() {
-  const [authState, setAuthState] = useState("checking"); // checking | required | authenticated
-  const [authMode, setAuthMode] = useState("login"); // login | register
+  const [authState, setAuthState] = useState("checking"); // checking | landing | login | register | authenticated
   const [username, setUsername] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [authError, setAuthError] = useState("");
@@ -650,7 +649,7 @@ export default function App() {
             setIsAdmin(!!data.isAdmin);
             setAuthState("authenticated");
           } else {
-            setAuthState("required");
+            setAuthState("landing");
           }
         } else {
           // /api/auth exists but errored unexpectedly — don't lock the user out
@@ -716,8 +715,7 @@ export default function App() {
     try { await fetch("/api/auth", { method: "DELETE" }); } catch (e) { /* ignore */ }
     setUsername(null);
     setIsAdmin(false);
-    setAuthState("required");
-    setAuthMode("login");
+    setAuthState("landing");
   }
 
   if (authState === "checking") {
@@ -729,14 +727,23 @@ export default function App() {
     );
   }
 
-  if (authState === "required") {
+  if (authState === "landing") {
     return (
       <div className="uxa-root dark">
         <StyleSheet />
-        {authMode === "login" ? (
-          <LoginScreen onLogin={login} error={authError} onSwitch={() => { setAuthError(""); setAuthMode("register"); }} />
+        <LandingPage onSignIn={() => { setAuthError(""); setAuthState("login"); }} onGetStarted={() => { setAuthError(""); setAuthState("register"); }} />
+      </div>
+    );
+  }
+
+  if (authState === "login" || authState === "register") {
+    return (
+      <div className="uxa-root dark">
+        <StyleSheet />
+        {authState === "login" ? (
+          <LoginScreen onLogin={login} error={authError} onSwitch={() => { setAuthError(""); setAuthState("register"); }} onBack={() => { setAuthError(""); setAuthState("landing"); }} />
         ) : (
-          <RegisterScreen onRegister={register} error={authError} onSwitch={() => { setAuthError(""); setAuthMode("login"); }} />
+          <RegisterScreen onRegister={register} error={authError} onSwitch={() => { setAuthError(""); setAuthState("login"); }} onBack={() => { setAuthError(""); setAuthState("landing"); }} />
         )}
       </div>
     );
@@ -745,7 +752,130 @@ export default function App() {
   return <AppShell username={username} isAdmin={isAdmin} onLogout={username ? logout : null} seedDemo={noBackend} />;
 }
 
-function LoginScreen({ onLogin, error, onSwitch }) {
+const FALLBACK_PACKAGES = [
+  { id: "fallback-trial", name: "Free Trial", description: "Try the full audit workflow before you buy.", price: 0, yearly_price: null, is_trial: true, is_enterprise: false, trial_days: 15, features: ["Full audit workspace", "AI-assisted recommendations", "Export Center (all formats)", "Up to 2 projects"] },
+  { id: "fallback-individual", name: "Individual", description: "For freelance and independent UX auditors.", price: 19, yearly_price: 190, is_trial: false, is_enterprise: false, features: ["Unlimited projects", "AI-assisted recommendations", "Export Center (all formats)", "Priority support"] },
+  { id: "fallback-enterprise", name: "Team / Enterprise", description: "For agencies and organizations auditing at scale.", price: 0, yearly_price: null, is_trial: false, is_enterprise: true, features: ["Everything in Individual", "Multiple team members", "Custom feature allocation", "Dedicated support"] },
+];
+
+const LANDING_FEATURES = [
+  { icon: ClipboardList, title: "Structured Audit Workspace", desc: "Organize findings by project, module, and screen — with per-screen severity, recommendations, and estimated effort built in." },
+  { icon: Sparkles, title: "AI-Assisted Recommendations", desc: "Generate recommendations, redesign prompts, and severity suggestions for any issue in one click." },
+  { icon: FileBarChart, title: "Client-Ready Export Center", desc: "Produce PDF, Excel, CSV, Word, PowerPoint, and JSON reports scoped to a project, screen, or filtered view." },
+  { icon: Upload, title: "Bulk Import", desc: "Paste an outline or upload a CSV to populate modules and screens in seconds instead of clicking through forms." },
+  { icon: Users2, title: "Private Multi-User Accounts", desc: "Every account gets its own fully isolated set of projects — nobody sees anyone else's audit data." },
+  { icon: ReceiptText, title: "Built-in Plan Management", desc: "Free trial, paid, and enterprise tiers with admin tools for assigning plans, tracking payments, and reporting." },
+];
+
+function LandingPage({ onSignIn, onGetStarted }) {
+  const [packages, setPackages] = useState(null);
+  const [cycle, setCycle] = useState("monthly");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/packages");
+        if (res.ok) {
+          const data = await res.json();
+          setPackages(data.packages && data.packages.length ? data.packages.sort((a, b) => a.display_order - b.display_order) : FALLBACK_PACKAGES);
+        } else {
+          setPackages(FALLBACK_PACKAGES);
+        }
+      } catch (e) {
+        setPackages(FALLBACK_PACKAGES);
+      }
+    })();
+  }, []);
+
+  return (
+    <div className="uxa-landing">
+      <nav className="uxa-landing-nav">
+        <div className="uxa-brand"><div className="uxa-brand-mark"><Layers size={16} strokeWidth={2.5} /></div><span>Auditlane</span></div>
+        <div className="uxa-landing-nav-links">
+          <a href="#features">Features</a>
+          <a href="#pricing">Pricing</a>
+        </div>
+        <div className="uxa-landing-nav-actions">
+          <button className="uxa-btn" onClick={onSignIn}>Sign in</button>
+          <button className="uxa-btn primary" onClick={onGetStarted}>Start free trial</button>
+        </div>
+      </nav>
+
+      <header className="uxa-landing-hero">
+        <div className="uxa-landing-tag"><Gift size={13} /> 15-day free trial · no credit card required</div>
+        <h1>Run UX audits your clients actually read.</h1>
+        <p>Auditlane is a structured audit workspace for UX designers and consultants — log findings screen by screen, get AI-assisted recommendations, and ship a polished client report in minutes.</p>
+        <div className="uxa-landing-hero-actions">
+          <button className="uxa-btn primary lg" onClick={onGetStarted}><Sparkles size={15} /> Start free trial</button>
+          <button className="uxa-btn lg" onClick={onSignIn}>Sign in</button>
+        </div>
+      </header>
+
+      <section className="uxa-landing-section" id="features">
+        <div className="uxa-landing-section-head"><h2>Everything an audit needs, in one place</h2></div>
+        <div className="uxa-landing-features-grid">
+          {LANDING_FEATURES.map((f) => (
+            <div className="uxa-landing-feature-card" key={f.title}>
+              <div className="uxa-stat-icon"><f.icon size={17} /></div>
+              <h3>{f.title}</h3>
+              <p>{f.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="uxa-landing-section" id="pricing">
+        <div className="uxa-landing-section-head">
+          <h2>Simple, transparent pricing</h2>
+          {packages && (
+            <div className="uxa-cycle-toggle">
+              <button className={cycle === "monthly" ? "active" : ""} onClick={() => setCycle("monthly")}>Monthly</button>
+              <button className={cycle === "yearly" ? "active" : ""} onClick={() => setCycle("yearly")}>Yearly</button>
+            </div>
+          )}
+        </div>
+        {!packages ? (
+          <div className="uxa-empty-state"><Loader2 size={20} className="spin" /></div>
+        ) : (
+          <div className="uxa-plans-grid">
+            {packages.map((p) => {
+              const price = cycle === "yearly" && p.yearly_price != null ? p.yearly_price : p.price;
+              return (
+                <div key={p.id} className={`uxa-plan-card ${p.is_enterprise ? "enterprise" : ""}`}>
+                  {p.is_enterprise ? <Gem size={18} /> : p.is_trial ? <Gift size={18} /> : <CreditCard size={18} />}
+                  <h4>{p.name}</h4>
+                  <p>{p.description}</p>
+                  {p.is_enterprise ? (
+                    <div className="uxa-plan-price">Custom pricing</div>
+                  ) : p.is_trial ? (
+                    <div className="uxa-plan-price">Free for {p.trial_days} days</div>
+                  ) : (
+                    <div className="uxa-plan-price">${price}<span>/{cycle === "yearly" ? "yr" : "mo"}</span></div>
+                  )}
+                  <ul className="uxa-plan-features">
+                    {(p.features || []).map((f, i) => <li key={i}><Check size={12} /> {f}</li>)}
+                  </ul>
+                  {p.is_enterprise ? (
+                    <a className="uxa-btn primary full" href="mailto:hello@auditlane.app?subject=Enterprise%20plan%20inquiry">Contact Sales</a>
+                  ) : (
+                    <button className="uxa-btn primary full" onClick={onGetStarted}>{p.is_trial ? "Start free trial" : "Get started"}</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <footer className="uxa-landing-footer">
+        <div className="uxa-brand"><div className="uxa-brand-mark"><Layers size={14} strokeWidth={2.5} /></div><span>Auditlane</span></div>
+        <span>© {new Date().getFullYear()} Auditlane. All rights reserved.</span>
+      </footer>
+    </div>
+  );
+}
+
+function LoginScreen({ onLogin, error, onSwitch, onBack }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -762,6 +892,7 @@ function LoginScreen({ onLogin, error, onSwitch }) {
   return (
     <div className="uxa-login-wrap">
       <form className="uxa-login-card" onSubmit={handleSubmit}>
+        {onBack && <button type="button" className="uxa-auth-back" onClick={onBack}><ArrowLeft size={13} /> Back to home</button>}
         <div className="uxa-brand-mark lg"><Layers size={20} strokeWidth={2.5} /></div>
         <h2>Sign in to Auditlane</h2>
         <p>UX Audit Management</p>
@@ -792,7 +923,7 @@ function LoginScreen({ onLogin, error, onSwitch }) {
   );
 }
 
-function RegisterScreen({ onRegister, error, onSwitch }) {
+function RegisterScreen({ onRegister, error, onSwitch, onBack }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -814,6 +945,7 @@ function RegisterScreen({ onRegister, error, onSwitch }) {
   return (
     <div className="uxa-login-wrap">
       <form className="uxa-login-card" onSubmit={handleSubmit}>
+        {onBack && <button type="button" className="uxa-auth-back" onClick={onBack}><ArrowLeft size={13} /> Back to home</button>}
         <div className="uxa-brand-mark lg"><Layers size={20} strokeWidth={2.5} /></div>
         <h2>Create your Auditlane account</h2>
         <p>Your projects stay private to your login</p>
@@ -3923,6 +4055,36 @@ function StyleSheet() {
       .uxa-login-error { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #DC2626; background: #FEE2E2; border-radius: var(--radius-sm); padding: 8px 10px; margin-bottom: 12px; width: 100%; }
       .uxa-login-card .uxa-btn.full { margin-top: 4px; }
       .uxa-auth-switch { border: none; background: transparent; color: var(--text-muted); font-size: 11.5px; margin-top: 12px; }
+      .uxa-auth-back { align-self: flex-start; display: flex; align-items: center; gap: 5px; border: none; background: transparent; color: var(--text-faint); font-size: 11.5px; margin-bottom: 10px; }
+      .uxa-auth-back:hover { color: var(--primary); }
+
+      /* Landing page */
+      .uxa-landing { height: 100%; overflow-y: auto; color: var(--text); }
+      .uxa-landing-nav { display: flex; align-items: center; justify-content: space-between; padding: 18px 40px; position: sticky; top: 0; background: var(--bg); border-bottom: 1px solid var(--border); z-index: 20; }
+      .uxa-landing-nav-links { display: flex; gap: 24px; }
+      .uxa-landing-nav-links a { color: var(--text-muted); font-size: 13px; font-weight: 500; text-decoration: none; }
+      .uxa-landing-nav-links a:hover { color: var(--primary); }
+      .uxa-landing-nav-actions { display: flex; gap: 10px; }
+      .uxa-landing-hero { max-width: 720px; margin: 0 auto; padding: 90px 24px 60px; text-align: center; }
+      .uxa-landing-tag { display: inline-flex; align-items: center; gap: 6px; background: var(--primary-soft); color: var(--primary); font-size: 11.5px; font-weight: 600; padding: 6px 14px; border-radius: 999px; margin-bottom: 20px; }
+      .uxa-landing-hero h1 { font-size: 40px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 16px; line-height: 1.15; }
+      .uxa-landing-hero p { font-size: 15px; color: var(--text-muted); line-height: 1.6; margin: 0 0 28px; }
+      .uxa-landing-hero-actions { display: flex; justify-content: center; gap: 12px; }
+      .uxa-btn.lg { padding: 11px 20px; font-size: 13.5px; }
+      .uxa-landing-section { max-width: 1080px; margin: 0 auto; padding: 50px 24px; }
+      .uxa-landing-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
+      .uxa-landing-section-head h2 { font-size: 24px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
+      .uxa-landing-features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+      .uxa-landing-feature-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); }
+      .uxa-landing-feature-card h3 { font-size: 14px; margin: 12px 0 6px; }
+      .uxa-landing-feature-card p { font-size: 12.5px; color: var(--text-muted); margin: 0; line-height: 1.5; }
+      .uxa-landing-footer { display: flex; align-items: center; justify-content: space-between; max-width: 1080px; margin: 20px auto 0; padding: 24px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-faint); }
+      @media (max-width: 720px) {
+        .uxa-landing-nav { padding: 14px 18px; flex-wrap: wrap; gap: 10px; }
+        .uxa-landing-nav-links { display: none; }
+        .uxa-landing-hero h1 { font-size: 28px; }
+        .uxa-landing-hero-actions { flex-direction: column; }
+      }
       .uxa-auth-switch span { color: var(--primary); font-weight: 600; }
       .uxa-admin-badge { font-style: normal; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--primary); background: var(--primary-soft); border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
       .uxa-user-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-sm); background: var(--bg); border: 1px solid var(--border); font-size: 12px; font-weight: 600; }
