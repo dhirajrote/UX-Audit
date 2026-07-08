@@ -8,7 +8,8 @@ import {
   TrendingUp, CircleAlert, CheckCircle2, ChevronsUpDown, GripVertical,
   FileText, FileSpreadsheet, FileType2, Presentation, Braces, Building2,
   Link2, Mail, RotateCcw, ExternalLink, Printer, CheckSquare, Square,
-  CalendarRange, UserCircle2, Image as ImageIcon, ArrowLeft, Info, LogOut, Lock, Eye, EyeOff, Upload, FileUp, ListChecks, Users2, KeyRound, ShieldAlert, Bell, CreditCard, Package, TrendingDown, Gem, PauseCircle, PlayCircle, ReceiptText, Gift
+  CalendarRange, UserCircle2, Image as ImageIcon, ArrowLeft, Info, LogOut, Lock, Eye, EyeOff, Upload, FileUp, ListChecks, Users2, KeyRound, ShieldAlert, Bell, CreditCard, Package, TrendingDown, Gem, PauseCircle, PlayCircle, ReceiptText, Gift,
+  LayoutTemplate, Star, Copy, Archive, History, Gauge, Tag, FileJson, ChevronUp, Layers3
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -46,6 +47,404 @@ const AREA_DEFAULTS = [
 ];
 
 const uid = (p = "id") => `${p}_${Math.random().toString(36).slice(2, 9)}`;
+
+/* ---- Audit Templates: checklist item helper + built-in template library ---- */
+const TEMPLATE_CATEGORIES = ["UX", "UI", "Accessibility", "Mobile", "Web", "SaaS", "Ecommerce", "Healthcare", "Banking", "Dashboard", "AI Products"];
+const SCORING_MODELS = [
+  { id: "percentage", label: "Percentage" },
+  { id: "five_star", label: "5-Star" },
+  { id: "numeric", label: "Numeric" },
+  { id: "weighted", label: "Weighted" },
+  { id: "pass_fail", label: "Pass/Fail" },
+  { id: "maturity", label: "Maturity Score" },
+  { id: "ux_health", label: "UX Health Score" },
+  { id: "overall_experience", label: "Overall Experience Score" },
+];
+
+function ci(title, description, category, area, severity, weightage, opts = {}) {
+  return {
+    id: uid("chk"), title, description, category, area, severity, weightage,
+    required: opts.required !== false,
+    expectedResult: opts.expectedResult || "",
+    examples: opts.examples || "",
+    bestPractice: opts.bestPractice || "",
+    referenceLink: opts.referenceLink || "",
+    aiPrompt: opts.aiPrompt || `Evaluate "${title}" for this screen. Explain what a failure looks like and suggest a concrete fix.`,
+    evaluationType: opts.evaluationType || "pass_fail",
+  };
+}
+
+function tpl(fields) {
+  return {
+    id: uid("tpl"), version: 1, status: "published", isBuiltIn: true,
+    createdBy: "System", createdAt: Date.now(), updatedAt: Date.now(),
+    usageCount: 0, favorite: false, references: [], aiRecommendationsEnabled: true,
+    versionHistory: [],
+    ...fields,
+    estimatedMinutes: fields.checklist.length * 8,
+  };
+}
+
+function buildDefaultTemplates() {
+  return [
+    tpl({
+      name: "Heuristic Evaluation", category: "UX", industry: ["SaaS", "Web", "Dashboard"], difficulty: "Intermediate",
+      scoringModel: "weighted",
+      description: "Evaluate usability against Nielsen's 10 usability heuristics.",
+      purpose: "Surface systemic usability problems by checking the interface against widely-accepted heuristics rather than personal opinion.",
+      checklist: [
+        ci("Visibility of system status", "The system keeps users informed about what's happening through timely, appropriate feedback.", "Feedback", "Notifications", "medium", 6, { bestPractice: "Show loading states, progress indicators, and confirmation messages for every action." }),
+        ci("Match between system and the real world", "The system speaks the users' language with familiar words, phrases, and concepts.", "Content", "Content", "medium", 5, { bestPractice: "Follow real-world conventions so information appears in a natural, logical order." }),
+        ci("User control and freedom", "Users can easily undo/redo and exit unwanted states via a clearly marked 'emergency exit'.", "Interaction", "Navigation", "high", 6, { bestPractice: "Support undo, cancel, and back navigation at every step of a flow." }),
+        ci("Consistency and standards", "Words, situations, and actions mean the same thing throughout the product and follow platform conventions.", "Consistency", "Consistency", "medium", 5, { bestPractice: "Reuse the same component and terminology for the same concept everywhere." }),
+        ci("Error prevention", "Careful design prevents problems before they occur, or checks for them and offers a confirmation.", "Error Handling", "Forms", "high", 7, { bestPractice: "Use constraints, confirmations, and inline validation to prevent errors before submit." }),
+        ci("Recognition rather than recall", "Minimize memory load by making objects, actions, and options visible.", "Content", "Navigation", "medium", 5, { bestPractice: "Surface options and instructions rather than requiring users to remember them." }),
+        ci("Flexibility and efficiency of use", "Accelerators for experts (shortcuts, saved views) coexist with a simple path for novices.", "Interaction", "Micro Interactions", "low", 3, { bestPractice: "Offer shortcuts, bulk actions, or customization for repeat users without cluttering the default view." }),
+        ci("Aesthetic and minimalist design", "Interfaces don't contain irrelevant or rarely-needed information that competes with what matters.", "Visual Hierarchy", "Layout", "medium", 4, { bestPractice: "Remove or de-emphasize elements that don't support the primary task on this screen." }),
+        ci("Help users recognize, diagnose, and recover from errors", "Error messages are expressed in plain language, precisely indicate the problem, and suggest a solution.", "Error Handling", "Error Handling", "high", 6, { bestPractice: "Write error messages that explain what went wrong and exactly how to fix it." }),
+        ci("Help and documentation", "Any necessary help is easy to search, focused on the user's task, and lists concrete steps.", "Content", "Onboarding", "low", 3, { bestPractice: "Provide contextual help near the point of confusion rather than a single long manual." }),
+      ],
+    }),
+
+    tpl({
+      name: "Cognitive Walkthrough", category: "UX", industry: ["SaaS", "Web"], difficulty: "Intermediate",
+      scoringModel: "pass_fail",
+      description: "Evaluate how well a first-time user can complete a task step by step.",
+      purpose: "Walk through a task as a new user would, checking at each step whether the right action is obvious and achievable.",
+      checklist: [
+        ci("Is the next action obvious?", "A first-time user can identify what to do next without guidance.", "Navigation", "Navigation", "high", 7, { evaluationType: "both" }),
+        ci("Is the goal clear at this step?", "The user understands what they're trying to accomplish before acting.", "Content", "Onboarding", "high", 6, { evaluationType: "both" }),
+        ci("Is feedback immediate after the action?", "The interface confirms the action was registered right away.", "Feedback", "Notifications", "medium", 5, { evaluationType: "both" }),
+        ci("Can users recover from a wrong turn?", "A user who takes an unintended path can get back on track easily.", "Interaction", "Navigation", "high", 6, { evaluationType: "both" }),
+        ci("Are labels understandable to a newcomer?", "Button and field labels use plain, task-oriented language, not internal jargon.", "Content", "Buttons", "medium", 5, { evaluationType: "both" }),
+        ci("Are the correct actions discoverable?", "The control needed for this step is visible without hunting through menus.", "Visual Hierarchy", "Buttons", "high", 6, { evaluationType: "both" }),
+      ],
+    }),
+
+    tpl({
+      name: "Task Flow Audit", category: "UX", industry: ["SaaS", "Web", "Ecommerce"], difficulty: "Intermediate",
+      scoringModel: "numeric",
+      description: "Evaluate an end-to-end user journey for friction, dead ends, and unnecessary steps.",
+      purpose: "Map a real user journey and quantify where it creates friction so the flow can be simplified.",
+      checklist: [
+        ci("Number of steps is minimized", "The flow doesn't ask for more steps than the task genuinely requires.", "Layout", "Navigation", "medium", 6, { evaluationType: "numeric" }),
+        ci("No unnecessary friction points", "Each step adds clear value; there's no busywork or redundant confirmation.", "Interaction", "Interaction", "high", 7, { evaluationType: "numeric" }),
+        ci("No dead ends", "Every screen offers a way forward, back, or out — none leave the user stuck.", "Navigation", "Navigation", "critical", 8, { evaluationType: "numeric" }),
+        ci("No decision overload", "Users aren't asked to make too many choices at once at any single step.", "Layout", "Forms", "medium", 5, { evaluationType: "numeric" }),
+        ci("No redundant screens", "No screen simply repeats information already shown without adding value.", "Content", "Layout", "low", 4, { evaluationType: "numeric" }),
+        ci("Completion rate is healthy", "Most users who start the flow are able to finish it.", "Feedback", "Empty State", "high", 7, { evaluationType: "numeric" }),
+        ci("Navigation is efficient", "Users can move forward and backward through the flow without confusion.", "Navigation", "Navigation", "medium", 5, { evaluationType: "numeric" }),
+      ],
+    }),
+
+    tpl({
+      name: "Accessibility Audit (WCAG)", category: "Accessibility", industry: ["Web", "Healthcare", "Banking", "SaaS"], difficulty: "Advanced",
+      scoringModel: "percentage",
+      description: "Evaluate conformance with WCAG's four principles: Perceivable, Operable, Understandable, Robust.",
+      purpose: "Identify accessibility barriers so the product is usable by people with a wide range of abilities, and reduce legal/compliance risk.",
+      checklist: [
+        ci("Color contrast meets minimum ratios", "Text and meaningful graphics have sufficient contrast against their background.", "Color", "Accessibility", "high", 7, { referenceLink: "WCAG 1.4.3 Contrast (Minimum)", bestPractice: "Body text should meet at least 4.5:1 contrast; large text at least 3:1." }),
+        ci("Text can be resized without loss of content", "Users can zoom or increase text size up to 200% without breaking layout or losing information.", "Typography", "Accessibility", "medium", 5, { referenceLink: "WCAG 1.4.4 Resize Text" }),
+        ci("Images have appropriate alt text", "Meaningful images have descriptive alt text; decorative images are marked as such.", "Content", "Accessibility", "high", 6, { referenceLink: "WCAG 1.1.1 Non-text Content" }),
+        ci("All functionality is keyboard-operable", "Every interactive element can be reached and used with a keyboard alone.", "Interaction", "Accessibility", "critical", 8, { referenceLink: "WCAG 2.1.1 Keyboard" }),
+        ci("Focus states are clearly visible", "A visible focus indicator shows which element currently has keyboard focus.", "Interaction", "Accessibility", "high", 6, { referenceLink: "WCAG 2.4.7 Focus Visible" }),
+        ci("Touch targets are large enough", "Interactive elements are large enough and spaced apart to tap accurately.", "Buttons", "Accessibility", "medium", 5, { referenceLink: "WCAG 2.5.8 Target Size (Minimum)" }),
+        ci("Error messages are understandable", "Errors are described in text (not color alone) and suggest how to fix them.", "Error Handling", "Accessibility", "high", 6, { referenceLink: "WCAG 3.3.1 Error Identification" }),
+        ci("Labels are programmatically associated", "Form fields have properly associated, descriptive labels.", "Forms", "Accessibility", "high", 6, { referenceLink: "WCAG 3.3.2 Labels or Instructions" }),
+        ci("Screen readers can navigate the content", "Content is announced in a logical order with correct roles and states.", "Content", "Accessibility", "critical", 7, { referenceLink: "WCAG 4.1.2 Name, Role, Value" }),
+        ci("Semantic HTML is used correctly", "Headings, lists, landmarks, and buttons use appropriate native/semantic markup.", "Consistency", "Accessibility", "medium", 5, { referenceLink: "WCAG 1.3.1 Info and Relationships" }),
+      ],
+    }),
+
+    tpl({
+      name: "Visual Design Audit", category: "UI", industry: ["Web", "SaaS", "Ecommerce"], difficulty: "Beginner",
+      scoringModel: "five_star",
+      description: "Evaluate the visual quality, consistency, and polish of the interface.",
+      purpose: "Catch inconsistencies and rough edges in typography, color, spacing, and hierarchy before they reach users.",
+      checklist: [
+        ci("Typography is consistent and legible", "Font sizes, weights, and line-height form a clear, readable type scale.", "Typography", "Typography", "medium", 5, { evaluationType: "rating" }),
+        ci("Color palette is applied consistently", "Colors are used purposefully and match the defined palette.", "Color", "Color", "medium", 5, { evaluationType: "rating" }),
+        ci("Spacing follows a consistent scale", "Padding and margins follow a defined spacing system rather than arbitrary values.", "Spacing", "Spacing", "medium", 5, { evaluationType: "rating" }),
+        ci("Elements align to a grid", "Components line up cleanly along consistent grid lines.", "Layout", "Layout", "low", 4, { evaluationType: "rating" }),
+        ci("Icons are visually consistent", "Icons share a consistent style, weight, and size.", "Icons", "Icons", "low", 3, { evaluationType: "rating" }),
+        ci("Visual hierarchy guides the eye correctly", "Size, weight, and color draw attention to what matters most first.", "Visual Hierarchy", "Visual Hierarchy", "high", 6, { evaluationType: "rating" }),
+        ci("White space is used effectively", "Whitespace groups related content and gives the layout room to breathe.", "Spacing", "Layout", "low", 4, { evaluationType: "rating" }),
+        ci("Branding is applied consistently", "Logo, color, and tone are consistent with brand guidelines.", "Consistency", "Consistency", "medium", 4, { evaluationType: "rating" }),
+        ci("Components look and behave consistently", "The same component looks and behaves the same everywhere it appears.", "Consistency", "Cards", "medium", 5, { evaluationType: "rating" }),
+        ci("Shadows are used purposefully", "Shadows communicate elevation consistently rather than being decorative noise.", "Layout", "Cards", "low", 3, { evaluationType: "rating" }),
+        ci("Elevation communicates layering clearly", "Overlapping surfaces (modals, dropdowns, cards) have a clear, consistent elevation order.", "Layout", "Cards", "low", 3, { evaluationType: "rating" }),
+        ci("Borders are used consistently", "Border weight, radius, and color are consistent across similar components.", "Consistency", "Cards", "low", 3, { evaluationType: "rating" }),
+      ],
+    }),
+
+    tpl({
+      name: "Design System Compliance Audit", category: "UI", industry: ["SaaS", "Web"], difficulty: "Intermediate",
+      scoringModel: "weighted",
+      description: "Evaluate how closely the interface follows the established design system.",
+      purpose: "Catch drift between the design system and shipped UI before it compounds into inconsistency.",
+      checklist: [
+        ci("Buttons use system components", "Buttons use the design system's variants rather than one-off styles.", "Buttons", "Consistency", "medium", 6),
+        ci("Inputs use system components", "Form inputs match the design system's states (default, focus, error, disabled).", "Inputs", "Forms", "medium", 6),
+        ci("Cards use system components", "Card layouts, padding, and elevation match the system's card component.", "Cards", "Consistency", "low", 4),
+        ci("Dialogs/modals use system components", "Modals follow the system's structure for header, body, and actions.", "Cards", "Consistency", "medium", 5),
+        ci("Colors use design tokens", "Colors are pulled from tokens rather than hard-coded hex values.", "Color", "Consistency", "high", 7),
+        ci("Spacing and sizing use tokens", "Spacing values map to the system's spacing scale/tokens.", "Spacing", "Consistency", "medium", 6),
+        ci("Components match the library, not custom variants", "No unofficial one-off variants of existing system components exist.", "Consistency", "Consistency", "high", 7),
+        ci("Icons come from the shared icon set", "Icons are pulled from the system's icon library, not mixed sources.", "Icons", "Icons", "low", 3),
+        ci("Layout follows system grid/containers", "Page layout uses the system's grid and container conventions.", "Layout", "Layout", "medium", 5),
+        ci("Typography uses system type styles", "Text uses defined type styles rather than ad hoc font sizes/weights.", "Typography", "Typography", "medium", 5),
+      ],
+    }),
+
+    tpl({
+      name: "Mobile UX Audit", category: "Mobile", industry: ["Mobile", "Ecommerce", "SaaS"], difficulty: "Intermediate",
+      scoringModel: "percentage",
+      description: "Evaluate the mobile-specific usability of an app or responsive site.",
+      purpose: "Check that the experience works naturally with touch, one-handed use, and mobile constraints.",
+      checklist: [
+        ci("Primary actions are within thumb reach", "Key actions sit in the easy-to-reach zone for one-handed phone use.", "Layout", "Buttons", "medium", 6),
+        ci("Gestures are supported where expected", "Common gestures (swipe, pull-to-refresh) work where users expect them.", "Interaction", "Micro Interactions", "medium", 5),
+        ci("Navigation is optimized for mobile", "Navigation collapses sensibly and doesn't require excessive scrolling or tapping.", "Navigation", "Navigation", "high", 6),
+        ci("Touch targets are large enough", "Buttons and links are large enough to tap accurately without mis-taps.", "Buttons", "Accessibility", "high", 6),
+        ci("Performance feels fast", "Screens and interactions respond without noticeable lag on typical devices.", "Performance", "Performance", "high", 7),
+        ci("Loading states are handled gracefully", "Slow content shows a skeleton/spinner rather than a blank or frozen screen.", "Loading State", "Loading State", "medium", 5),
+        ci("On-screen keyboard interactions work well", "The keyboard doesn't obscure the field being edited or break the layout.", "Forms", "Inputs", "medium", 5),
+        ci("Mobile accessibility is supported", "VoiceOver/TalkBack and dynamic type work correctly.", "Accessibility", "Accessibility", "high", 6),
+        ci("Orientation changes are handled", "Rotating the device doesn't break layout or lose user input.", "Responsive", "Layout", "low", 3),
+        ci("Layout responds well across mobile screen sizes", "The UI adapts cleanly across small and large phone screens.", "Responsive", "Layout", "medium", 5),
+      ],
+    }),
+
+    tpl({
+      name: "Responsive Design Audit", category: "Web", industry: ["Web", "SaaS", "Ecommerce"], difficulty: "Intermediate",
+      scoringModel: "percentage",
+      description: "Evaluate how the layout adapts across desktop, tablet, and mobile, in both orientations.",
+      purpose: "Confirm the interface holds up cleanly at every common breakpoint and orientation, not just the design file's canvas size.",
+      checklist: [
+        ci("Breakpoints transition cleanly", "Layout changes smoothly at each breakpoint without awkward in-between states.", "Responsive", "Layout", "medium", 6),
+        ci("Typography scales appropriately", "Font sizes adjust sensibly across screen sizes for readability.", "Typography", "Responsive", "medium", 5),
+        ci("Images scale and crop appropriately", "Images resize without distortion, pixelation, or overflow.", "Content", "Responsive", "medium", 5),
+        ci("No unexpected layout shifts", "Content doesn't jump or reflow unexpectedly as it loads or resizes.", "Layout", "Performance", "high", 6),
+        ci("No horizontal overflow", "Content never forces unwanted horizontal scrolling on any breakpoint.", "Layout", "Responsive", "high", 6),
+        ci("Navigation adapts per breakpoint", "Navigation reorganizes appropriately (e.g. collapses to a menu) per screen size.", "Navigation", "Responsive", "medium", 5),
+      ],
+    }),
+
+    tpl({
+      name: "Forms Usability Audit", category: "UX", industry: ["SaaS", "Ecommerce", "Banking"], difficulty: "Beginner",
+      scoringModel: "weighted",
+      description: "Evaluate the usability of a form from labeling through confirmation.",
+      purpose: "Reduce abandonment and errors by checking every stage of filling out and submitting a form.",
+      checklist: [
+        ci("Labels are clear and always visible", "Every field has a persistent, descriptive label (not placeholder-only).", "Forms", "Forms", "high", 6),
+        ci("Validation is timely and specific", "Validation runs at a sensible time and explains exactly what to fix.", "Forms", "Error Handling", "high", 7),
+        ci("Inline errors appear next to the field", "Errors are shown directly next to the relevant field, not just in a banner.", "Error Handling", "Forms", "high", 6),
+        ci("Autocomplete is enabled where useful", "Fields like name, address, and email support browser autofill.", "Forms", "Inputs", "low", 3),
+        ci("Required fields are clearly marked", "Required vs. optional fields are visually distinguished.", "Forms", "Forms", "medium", 5),
+        ci("Keyboard use is fully supported", "The form can be completed and submitted using only the keyboard.", "Interaction", "Accessibility", "medium", 5),
+        ci("Tab order is logical", "Tabbing through fields follows the visual reading order.", "Interaction", "Forms", "medium", 5),
+        ci("Input masks match expected formats", "Fields like phone/date guide the expected format without being rigid.", "Inputs", "Forms", "low", 3),
+        ci("Confirmation messages appear after submit", "Users get clear confirmation that their submission succeeded.", "Feedback", "Notifications", "medium", 5),
+      ],
+    }),
+
+    tpl({
+      name: "Dashboard Usability Audit", category: "Dashboard", industry: ["Dashboard", "SaaS", "Banking"], difficulty: "Intermediate",
+      scoringModel: "weighted",
+      description: "Evaluate how well a data dashboard communicates information and supports decisions.",
+      purpose: "Check that the most important information is easy to find, understand, and act on.",
+      checklist: [
+        ci("Information hierarchy highlights what matters", "The most important metrics are the most visually prominent.", "Visual Hierarchy", "Charts", "high", 7),
+        ci("Charts are easy to read and appropriate to the data", "Chart types match the data being shown and aren't misleading.", "Charts", "Charts", "high", 6),
+        ci("KPIs are clearly labeled with context", "Key metrics include labels, units, and comparison context (e.g. vs. last period).", "Content", "Charts", "high", 6),
+        ci("Filters are easy to find and use", "Filtering the data is discoverable and doesn't require guesswork.", "Filters", "Filters", "medium", 5),
+        ci("Search works where the dashboard has lists/tables", "Users can search or find relevant rows quickly.", "Search", "Search", "medium", 4),
+        ci("Data tables are scannable", "Tables use alignment, spacing, and sorting to stay readable at scale.", "Tables", "Tables", "medium", 5),
+        ci("Drill-down is available for detail", "Users can go from a summary view into the underlying detail.", "Interaction", "Charts", "medium", 5),
+        ci("Empty states are handled gracefully", "Widgets with no data explain why and what to do next.", "Empty State", "Empty State", "low", 4),
+        ci("Loading states avoid a jarring first paint", "Data widgets show skeletons/placeholders rather than popping in abruptly.", "Loading State", "Loading State", "low", 3),
+      ],
+    }),
+
+    tpl({
+      name: "E-commerce UX Audit", category: "Ecommerce", industry: ["Ecommerce"], difficulty: "Intermediate",
+      scoringModel: "percentage",
+      description: "Evaluate the full shopping journey from browsing to order confirmation.",
+      purpose: "Identify friction anywhere along the path to purchase, where small issues have an outsized revenue impact.",
+      checklist: [
+        ci("Product listings are scannable and informative", "Listing pages show enough information to compare products at a glance.", "Cards", "Content", "medium", 5),
+        ci("Filters help narrow results effectively", "Filters cover the attributes shoppers actually care about.", "Filters", "Filters", "medium", 5),
+        ci("Search returns relevant results", "Product search handles typos and synonyms reasonably well.", "Search", "Search", "high", 6),
+        ci("Product pages answer key purchase questions", "Product pages show price, availability, specs, and images clearly.", "Content", "Cards", "high", 7),
+        ci("Reviews are visible and credible", "Customer reviews are easy to find and appear genuine.", "Content", "Content", "low", 3),
+        ci("Wishlist/save-for-later works smoothly", "Users can save an item and find it again easily.", "Interaction", "Cards", "low", 3),
+        ci("Cart is easy to review and edit", "Users can change quantity or remove items without confusion.", "Interaction", "Forms", "high", 6),
+        ci("Checkout has minimal unnecessary steps", "Checkout doesn't ask for more than needed to complete the purchase.", "Layout", "Forms", "critical", 8),
+        ci("Payment options are clear and trustworthy", "Payment methods and security cues are clear and reassuring.", "Forms", "Feedback", "high", 7),
+        ci("Order confirmation is clear and complete", "Confirmation shows order details and next steps (shipping, receipt).", "Feedback", "Notifications", "medium", 5),
+      ],
+    }),
+
+    tpl({
+      name: "SaaS Product Audit", category: "SaaS", industry: ["SaaS"], difficulty: "Advanced",
+      scoringModel: "overall_experience",
+      description: "Evaluate the core product experience of a SaaS application end to end.",
+      purpose: "Check the moments that most affect activation and retention: onboarding, navigation, and day-to-day usability.",
+      checklist: [
+        ci("Onboarding gets users to value quickly", "New users reach a meaningful first success without unnecessary setup.", "Onboarding", "Onboarding", "critical", 8),
+        ci("Navigation reflects the product's mental model", "Primary navigation matches how users think about the product, not the org chart.", "Navigation", "Navigation", "high", 7),
+        ci("Key features are discoverable", "Valuable features aren't hidden behind menus users never open.", "Navigation", "Micro Interactions", "high", 6),
+        ci("Pricing/plan information is clear in-app", "Users can see what plan they're on and what upgrading unlocks.", "Content", "Content", "medium", 4),
+        ci("Settings are organized logically", "Settings are grouped in a way users can predict.", "Layout", "Consistency", "medium", 5),
+        ci("Notifications are useful, not noisy", "Notifications are relevant and don't overwhelm the user.", "Notifications", "Notifications", "medium", 5),
+        ci("Permissions/roles are understandable", "Users understand what their role can and can't do.", "Content", "Forms", "medium", 5),
+        ci("Dashboards surface what matters to the user's goal", "The default dashboard view is relevant to the user's role.", "Dashboard", "Charts", "high", 6),
+        ci("Product tours are helpful, not intrusive", "In-product guidance helps without blocking the user's own exploration.", "Onboarding", "Onboarding", "low", 3),
+        ci("Help center is easy to reach and useful", "Users can find help without leaving their task entirely.", "Content", "Onboarding", "low", 3),
+      ],
+    }),
+
+    tpl({
+      name: "AI Product UX Audit", category: "AI Products", industry: ["AI Products", "SaaS"], difficulty: "Advanced",
+      scoringModel: "ux_health",
+      description: "Evaluate the UX of an AI-powered feature or product, including trust and explainability.",
+      purpose: "AI interfaces introduce unique UX risks (uncertainty, hallucination, trust) that classic heuristics don't fully cover.",
+      checklist: [
+        ci("Prompt/input interface is clear", "Users understand what kind of input the AI expects and how to phrase it.", "Forms", "Content", "high", 6),
+        ci("Response quality is consistently useful", "AI output is relevant and useful for the stated task most of the time.", "Content", "Feedback", "critical", 8),
+        ci("Confidence is communicated appropriately", "The interface signals when the AI is uncertain rather than presenting everything with false confidence.", "Feedback", "Content", "high", 7),
+        ci("Loading/generation state is clear", "Users understand the system is working and roughly how long it may take.", "Loading State", "Loading State", "medium", 5),
+        ci("Responses are explainable", "Users can understand roughly why the AI produced this output.", "Content", "Content", "high", 6),
+        ci("Regeneration/retry is easy", "Users can easily ask for another attempt if the first response isn't right.", "Interaction", "Micro Interactions", "medium", 5),
+        ci("Conversation/session history is preserved sensibly", "Prior context is retained where it should be, and clearable where it shouldn't.", "Content", "Content", "medium", 5),
+        ci("Privacy handling is clear", "Users understand what happens to the data/content they share with the AI.", "Content", "Content", "high", 7),
+        ci("Feedback mechanism exists (thumbs up/down etc.)", "Users have a lightweight way to signal whether a response was good.", "Interaction", "Feedback", "medium", 4),
+        ci("Hallucination risk is mitigated in the UI", "The interface encourages verification rather than blind trust for high-stakes output.", "Content", "Feedback", "critical", 8),
+      ],
+    }),
+
+    tpl({
+      name: "Healthcare UX Audit", category: "Healthcare", industry: ["Healthcare"], difficulty: "Advanced",
+      scoringModel: "ux_health",
+      description: "Evaluate a clinical or patient-facing product for safety, clarity, and accessibility.",
+      purpose: "Healthcare interfaces carry real safety and compliance stakes — this audit weighs those risks explicitly.",
+      checklist: [
+        ci("Interface is accessible to patients with disabilities", "Meets baseline accessibility for a patient population with varied abilities.", "Accessibility", "Accessibility", "critical", 8),
+        ci("Fits real clinical workflow", "The tool matches how clinicians actually work, not an idealized workflow.", "Interaction", "Navigation", "high", 7),
+        ci("Design actively prevents patient-safety errors", "Look-alike drugs/values, unit mismatches, and similar risks are designed against.", "Error Handling", "Forms", "critical", 9),
+        ci("Errors are prevented, not just caught", "Constraints and confirmations stop dangerous input before submission.", "Error Handling", "Forms", "critical", 8),
+        ci("Medical terminology is used correctly and consistently", "Clinical language is accurate and consistent throughout.", "Content", "Content", "high", 6),
+        ci("HIPAA-relevant data handling is visibly respected", "The UI reflects appropriate handling of protected health information.", "Content", "Content", "high", 7),
+        ci("Critical alerts are impossible to miss", "Urgent alerts stand out clearly from routine notifications.", "Notifications", "Notifications", "critical", 8),
+        ci("Forms match clinical documentation needs", "Forms capture what's clinically required without unnecessary burden.", "Forms", "Forms", "medium", 5),
+        ci("Patient records are easy to review accurately", "Records are laid out to minimize misreading critical values.", "Tables", "Content", "high", 7),
+      ],
+    }),
+
+    tpl({
+      name: "UX Writing Audit", category: "UX", industry: ["SaaS", "Web", "Ecommerce"], difficulty: "Beginner",
+      scoringModel: "five_star",
+      description: "Evaluate the clarity, tone, and consistency of the product's in-app copy.",
+      purpose: "Good UX writing quietly prevents confusion — this audit checks whether the words are pulling their weight.",
+      checklist: [
+        ci("Labels are clear and action-oriented", "Button and field labels say exactly what will happen.", "Buttons", "Content", "medium", 5, { evaluationType: "rating" }),
+        ci("Button copy describes the specific action", "Buttons avoid vague labels like 'Submit' or 'OK' where a specific verb would help.", "Buttons", "Content", "medium", 5, { evaluationType: "rating" }),
+        ci("Headings are descriptive and scannable", "Headings let users understand a section without reading all the body copy.", "Content", "Typography", "medium", 4, { evaluationType: "rating" }),
+        ci("Error messages are human and actionable", "Errors explain the problem and the fix in plain language.", "Error Handling", "Content", "high", 6, { evaluationType: "rating" }),
+        ci("Success messages confirm what happened", "Success copy confirms specifically what just occurred.", "Feedback", "Content", "low", 3, { evaluationType: "rating" }),
+        ci("Empty states guide the next action", "Empty states explain what's missing and what to do about it.", "Empty State", "Content", "medium", 4, { evaluationType: "rating" }),
+        ci("Microcopy reduces hesitation at decision points", "Small helper text near risky actions clarifies consequences.", "Content", "Micro Interactions", "low", 3, { evaluationType: "rating" }),
+        ci("Tone is consistent with the brand", "Copy tone doesn't swing between formal and casual unpredictably.", "Content", "Consistency", "low", 3, { evaluationType: "rating" }),
+        ci("Terminology is consistent throughout", "The same concept is called the same thing everywhere in the product.", "Consistency", "Content", "medium", 5, { evaluationType: "rating" }),
+      ],
+    }),
+  ];
+}
+
+const DEFAULT_TEMPLATES = buildDefaultTemplates();
+
+/* ---- Audit Templates: scoring engine (all 8 models from the spec) ---- */
+const SEVERITY_PENALTY = { critical: 25, high: 15, medium: 8, low: 3 };
+
+function scoreForModel(model, items, results) {
+  const evaluated = items.filter((it) => results[it.id] && results[it.id].status && results[it.id].status !== "na");
+  const passItems = evaluated.filter((it) => results[it.id].status === "pass");
+  const failItems = evaluated.filter((it) => results[it.id].status === "fail");
+  const ratedItems = items.filter((it) => results[it.id] && typeof results[it.id].rating === "number");
+  const numericItems = items.filter((it) => results[it.id] && typeof results[it.id].numericValue === "number");
+
+  switch (model) {
+    case "percentage": {
+      const pct = evaluated.length ? Math.round((passItems.length / evaluated.length) * 100) : 0;
+      return { value: pct, display: `${pct}%`, max: 100 };
+    }
+    case "five_star": {
+      const avg = ratedItems.length ? ratedItems.reduce((s, it) => s + results[it.id].rating, 0) / ratedItems.length : 0;
+      return { value: avg, display: `${avg.toFixed(1)} / 5`, max: 5 };
+    }
+    case "numeric": {
+      const sum = numericItems.reduce((s, it) => s + results[it.id].numericValue, 0);
+      return { value: sum, display: `${sum} / ${items.length * 10}`, max: items.length * 10 };
+    }
+    case "weighted": {
+      const totalWeight = evaluated.reduce((s, it) => s + (it.weightage || 1), 0);
+      const passWeight = passItems.reduce((s, it) => s + (it.weightage || 1), 0);
+      const pct = totalWeight ? Math.round((passWeight / totalWeight) * 100) : 0;
+      return { value: pct, display: `${pct}% (weighted)`, max: 100 };
+    }
+    case "pass_fail": {
+      const requiredFails = failItems.filter((it) => it.required);
+      const pass = requiredFails.length === 0 && evaluated.length > 0;
+      return { value: pass ? 1 : 0, display: evaluated.length === 0 ? "Not evaluated" : (pass ? "Pass" : "Fail"), max: 1 };
+    }
+    case "maturity": {
+      const pct = evaluated.length ? (passItems.length / evaluated.length) * 100 : 0;
+      const level = pct >= 80 ? "Optimized" : pct >= 60 ? "Managed" : pct >= 40 ? "Defined" : pct >= 20 ? "Developing" : "Initial";
+      return { value: pct, display: level, max: 100 };
+    }
+    case "ux_health": {
+      const penalty = failItems.reduce((s, it) => s + (SEVERITY_PENALTY[results[it.id].severity || it.severity] || 5), 0);
+      const health = Math.max(0, 100 - penalty);
+      return { value: health, display: `${health} / 100`, max: 100 };
+    }
+    case "overall_experience": {
+      const pct = evaluated.length ? (passItems.length / evaluated.length) * 100 : 0;
+      const penalty = failItems.reduce((s, it) => s + (SEVERITY_PENALTY[results[it.id].severity || it.severity] || 5), 0);
+      const health = Math.max(0, 100 - penalty);
+      const starPct = ratedItems.length ? (ratedItems.reduce((s, it) => s + results[it.id].rating, 0) / ratedItems.length / 5) * 100 : pct;
+      const composite = Math.round((pct + health + starPct) / 3);
+      return { value: composite, display: `${composite} / 100`, max: 100 };
+    }
+    default:
+      return { value: 0, display: "—", max: 100 };
+  }
+}
+
+function computeAuditScores(templates, run) {
+  const results = run.results || {};
+  const allItems = templates.flatMap((t) => t.checklist.map((it) => ({ ...it, __templateId: t.id, __templateName: t.name })));
+  const byTemplate = templates.map((t) => ({
+    templateId: t.id, templateName: t.name, model: t.scoringModel,
+    ...scoreForModel(t.scoringModel, t.checklist, results),
+  }));
+  const primaryModel = templates[0]?.scoringModel || "percentage";
+  const overall = scoreForModel(primaryModel, allItems, results);
+  const allModels = SCORING_MODELS.map((m) => ({ ...m, ...scoreForModel(m.id, allItems, results) }));
+  const byCategory = {};
+  allItems.forEach((it) => {
+    const cat = it.category || "Other";
+    if (!byCategory[cat]) byCategory[cat] = { total: 0, pass: 0 };
+    const r = results[it.id];
+    if (r && r.status && r.status !== "na") {
+      byCategory[cat].total++;
+      if (r.status === "pass") byCategory[cat].pass++;
+    }
+  });
+  const categoryScores = Object.entries(byCategory).map(([category, v]) => ({
+    category, percentage: v.total ? Math.round((v.pass / v.total) * 100) : 0, evaluated: v.total,
+  }));
+  return { overall: { model: primaryModel, ...overall }, byTemplate, allModels, byCategory: categoryScores };
+}
 
 function makeSeedProjects() {
   const proj1 = {
@@ -234,6 +633,8 @@ function AppShell({ username, onLogout, isAdmin, seedDemo }) {
   const [screenTypes, setScreenTypes] = useState(SCREEN_TYPE_DEFAULTS);
   const [areas, setAreas] = useState(AREA_DEFAULTS);
   const [severities, setSeverities] = useState(SEVERITY_DEFAULTS);
+  const [templates, setTemplates] = useState(DEFAULT_TEMPLATES);
+  const [auditRuns, setAuditRuns] = useState([]);
   const [activity, setActivity] = useState([
     { id: uid("act"), text: "Audit saved for Login", ts: Date.now() - 1000 * 60 * 12 },
     { id: uid("act"), text: "New issue UX-003 created in Dashboard / Overview", ts: Date.now() - 1000 * 60 * 60 * 2 },
@@ -289,6 +690,8 @@ function AppShell({ username, onLogout, isAdmin, seedDemo }) {
           if (parsed.screenTypes) setScreenTypes(parsed.screenTypes);
           if (parsed.areas) setAreas(parsed.areas);
           if (parsed.severities) setSeverities(parsed.severities);
+          if (parsed.templates) setTemplates(parsed.templates);
+          if (parsed.auditRuns) setAuditRuns(parsed.auditRuns);
           if (parsed.theme) setTheme(parsed.theme);
         }
       } catch (e) { /* no saved state yet */ }
@@ -298,10 +701,10 @@ function AppShell({ username, onLogout, isAdmin, seedDemo }) {
   useEffect(() => {
     if (!loaded) return;
     const t = setTimeout(() => {
-      saveAppState({ projects, screenTypes, areas, severities, theme });
+      saveAppState({ projects, screenTypes, areas, severities, templates, auditRuns, theme });
     }, 500);
     return () => clearTimeout(t);
-  }, [projects, screenTypes, areas, severities, theme, loaded]);
+  }, [projects, screenTypes, areas, severities, templates, auditRuns, theme, loaded]);
 
   /* ---- command palette keybind ---- */
   useEffect(() => {
@@ -466,6 +869,107 @@ function AppShell({ username, onLogout, isAdmin, seedDemo }) {
     showToast(`Imported ${addedScreens} screen${addedScreens === 1 ? "" : "s"}${skipped ? `, skipped ${skipped} duplicate${skipped === 1 ? "" : "s"}` : ""}`, "check");
   }
 
+  /* ---- Audit Templates ---- */
+  const [activeRunId, setActiveRunId] = useState(null);
+
+  function createTemplate(fields) {
+    const t = tpl({
+      ...fields, isBuiltIn: false, createdBy: username || "You", status: "draft",
+      checklist: (fields.checklist || []).map((c) => ({ ...c, id: c.id || uid("chk") })),
+    });
+    setTemplates((prev) => [t, ...prev]);
+    showToast("Template created", "check");
+    return t.id;
+  }
+  function updateTemplateFields(id, patch) {
+    setTemplates((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch, updatedAt: Date.now() } : t)));
+  }
+  function duplicateTemplate(id) {
+    setTemplates((prev) => {
+      const src = prev.find((t) => t.id === id);
+      if (!src) return prev;
+      const copy = {
+        ...src, id: uid("tpl"), name: `${src.name} (Copy)`, isBuiltIn: false, status: "draft",
+        version: 1, versionHistory: [], usageCount: 0, favorite: false,
+        createdBy: username || "You", createdAt: Date.now(), updatedAt: Date.now(),
+        checklist: src.checklist.map((c) => ({ ...c, id: uid("chk") })),
+      };
+      showToast("Template duplicated", "check");
+      return [copy, ...prev];
+    });
+  }
+  function archiveTemplate(id) { updateTemplateFields(id, { status: "archived" }); showToast("Template archived"); }
+  function unarchiveTemplate(id) { updateTemplateFields(id, { status: "draft" }); showToast("Template restored"); }
+  function deleteTemplate(id) {
+    const t = templates.find((x) => x.id === id);
+    if (t?.isBuiltIn) { showToast("Built-in templates can only be archived, not deleted"); return; }
+    if (!window.confirm(`Delete "${t?.name}"? This can't be undone.`)) return;
+    setTemplates((prev) => prev.filter((x) => x.id !== id));
+    showToast("Template deleted");
+  }
+  function toggleFavoriteTemplate(id) {
+    setTemplates((prev) => prev.map((t) => (t.id === id ? { ...t, favorite: !t.favorite } : t)));
+  }
+  function publishTemplate(id, note) {
+    setTemplates((prev) => prev.map((t) => {
+      if (t.id !== id) return t;
+      const snapshot = { name: t.name, description: t.description, checklist: t.checklist, scoringModel: t.scoringModel };
+      const nextVersion = (t.version || 1) + 1;
+      return {
+        ...t, status: "published", version: nextVersion,
+        versionHistory: [{ version: t.version, snapshot, publishedAt: Date.now(), note: note || "Published" }, ...(t.versionHistory || [])],
+        updatedAt: Date.now(),
+      };
+    }));
+    showToast("Template published", "check");
+  }
+  function restoreTemplateVersion(id, historyEntry) {
+    setTemplates((prev) => prev.map((t) => {
+      if (t.id !== id) return t;
+      const nextVersion = (t.version || 1) + 1;
+      return {
+        ...t, ...historyEntry.snapshot, version: nextVersion, updatedAt: Date.now(),
+        versionHistory: [{ version: t.version, snapshot: { name: t.name, description: t.description, checklist: t.checklist, scoringModel: t.scoringModel }, publishedAt: Date.now(), note: `Restored from v${historyEntry.version}` }, ...(t.versionHistory || [])],
+      };
+    }));
+    showToast(`Restored v${historyEntry.version}`, "check");
+  }
+  function importTemplate(parsed) {
+    const t = tpl({
+      name: (parsed.name || "Imported Template") + " (Imported)", category: parsed.category || "UX",
+      industry: parsed.industry || [], difficulty: parsed.difficulty || "Intermediate",
+      scoringModel: parsed.scoringModel || "percentage", description: parsed.description || "",
+      purpose: parsed.purpose || "", isBuiltIn: false, status: "draft", createdBy: username || "You",
+      checklist: (parsed.checklist || []).map((c) => ({ ...c, id: uid("chk") })),
+    });
+    setTemplates((prev) => [t, ...prev]);
+    showToast("Template imported", "check");
+    return t.id;
+  }
+
+  function startAuditRun({ templateIds, targetType, targetId, targetLabel }) {
+    const run = {
+      id: uid("run"), templateIds, targetType, targetId, targetLabel,
+      status: "in_progress", startedAt: Date.now(), completedAt: null, results: {},
+    };
+    setAuditRuns((prev) => [run, ...prev]);
+    setTemplates((prev) => prev.map((t) => (templateIds.includes(t.id) ? { ...t, usageCount: (t.usageCount || 0) + 1 } : t)));
+    setActiveRunId(run.id);
+    logActivity(`Started audit run against ${targetLabel}`);
+  }
+  function updateRunResult(runId, itemId, patch) {
+    setAuditRuns((prev) => prev.map((r) => (r.id !== runId ? r : { ...r, results: { ...r.results, [itemId]: { ...r.results[itemId], ...patch } } })));
+  }
+  function completeRun(runId) {
+    setAuditRuns((prev) => prev.map((r) => (r.id === runId ? { ...r, status: "completed", completedAt: Date.now() } : r)));
+    showToast("Audit completed", "check");
+  }
+  function deleteRun(runId) {
+    if (!window.confirm("Delete this audit run? This can't be undone.")) return;
+    setAuditRuns((prev) => prev.filter((r) => r.id !== runId));
+    if (activeRunId === runId) setActiveRunId(null);
+  }
+
   const dashStats = useMemo(() => {
     const totalProjects = projects.length;
     const totalScreens = screensFlat.length;
@@ -541,6 +1045,31 @@ function AppShell({ username, onLogout, isAdmin, seedDemo }) {
                 onExportScreen={(projectId, screenId) => openExport({ scope: "currentScreen", projectId, screenId })}
                 onExportIssueList={(projectId, screenId, filters) => openExport({ scope: "currentScreen", projectId, screenId, presetFilters: filters })}
               />
+            )}
+            {view === "templates" && (
+              activeRunId ? (
+                <AuditRunView
+                  run={auditRuns.find((r) => r.id === activeRunId)}
+                  templates={templates}
+                  severities={severities}
+                  onUpdateResult={updateRunResult}
+                  onComplete={completeRun}
+                  onExit={() => setActiveRunId(null)}
+                  onCreateIssue={(mode, screenId, issue) => setIssuePanel({ mode, screenId, issue })}
+                  projects={projects}
+                  showToast={showToast}
+                />
+              ) : (
+                <TemplatesView
+                  templates={templates} projects={projects} auditRuns={auditRuns}
+                  onCreate={createTemplate} onUpdate={updateTemplateFields} onDuplicate={duplicateTemplate}
+                  onArchive={archiveTemplate} onUnarchive={unarchiveTemplate} onDelete={deleteTemplate}
+                  onToggleFavorite={toggleFavoriteTemplate} onPublish={publishTemplate}
+                  onRestoreVersion={restoreTemplateVersion} onImport={importTemplate}
+                  onStartRun={startAuditRun} onOpenRun={(id) => setActiveRunId(id)} onDeleteRun={deleteRun}
+                  showToast={showToast}
+                />
+              )
             )}
             {view === "settings" && (
               <SettingsView screenTypes={screenTypes} setScreenTypes={setScreenTypes} areas={areas} setAreas={setAreas} severities={severities} setSeverities={setSeverities} showToast={showToast} />
@@ -986,6 +1515,7 @@ function Sidebar({ view, setView, theme, setTheme, setCommandOpen, username, onL
   const items = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { id: "projects", label: "Projects", icon: FolderKanban },
+    { id: "templates", label: "Audit Templates", icon: LayoutTemplate },
     { id: "workspace", label: "Audit Workspace", icon: ClipboardList },
     { id: "reports", label: "Reports", icon: FileBarChart },
     ...(!isAdmin ? [{ id: "billing", label: "Billing", icon: CreditCard }] : []),
@@ -1034,7 +1564,7 @@ function TopBar({ view, activeProject, setCommandOpen, onNewProject, isAdmin }) 
   const titles = {
     dashboard: "Dashboard", projects: "Projects", workspace: activeProject ? activeProject.name : "Audit Workspace",
     settings: "Settings", reports: "Reports", users: "Users", billing: "Billing",
-    packages: "Packages", "admin-subscriptions": "Subscriptions",
+    packages: "Packages", "admin-subscriptions": "Subscriptions", templates: "Audit Templates",
   };
   const subtitles = {
     dashboard: "Audit program overview across all projects", projects: "All client audit engagements",
@@ -1044,6 +1574,7 @@ function TopBar({ view, activeProject, setCommandOpen, onNewProject, isAdmin }) 
     billing: "Your plan, usage, and payment history",
     packages: "Configure subscription packages (admin only)",
     "admin-subscriptions": "Manage every user's subscription and view analytics (admin only)",
+    templates: "Standardized checklists for consistent, repeatable UX reviews",
   };
   return (
     <header className="uxa-topbar">
@@ -2898,6 +3429,675 @@ function SalesRequestsTab({ showToast }) {
   );
 }
 
+/* ============================== AUDIT TEMPLATES ============================== */
+
+function TemplatesView({ templates, projects, auditRuns, onCreate, onUpdate, onDuplicate, onArchive, onUnarchive, onDelete, onToggleFavorite, onPublish, onRestoreVersion, onImport, onStartRun, onOpenRun, onDeleteRun, showToast }) {
+  const [tab, setTab] = useState("library");
+  const [category, setCategory] = useState("all");
+  const [search, setSearch] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [builder, setBuilder] = useState(null); // template | "new" | null
+  const [versionsFor, setVersionsFor] = useState(null);
+  const [assignFor, setAssignFor] = useState(null); // array of template ids
+  const [importOpen, setImportOpen] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const filtered = templates.filter((t) => {
+    if (!showArchived && t.status === "archived") return false;
+    if (category !== "all" && t.category !== category) return false;
+    if (search && !t.name.toLowerCase().includes(search.toLowerCase()) && !t.description.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  function handleImportFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result));
+        onImport(parsed);
+      } catch (e) { showToast("Could not parse that file — expected a template JSON export."); }
+    };
+    reader.readAsText(file);
+    setImportOpen(false);
+  }
+
+  return (
+    <div>
+      <div className="uxa-settings-tabs">
+        <button className={tab === "library" ? "active" : ""} onClick={() => setTab("library")}>Library</button>
+        <button className={tab === "analytics" ? "active" : ""} onClick={() => setTab("analytics")}>Analytics</button>
+      </div>
+
+      {tab === "library" && (
+        <>
+          <div className="uxa-panel-head" style={{ marginBottom: 12 }}>
+            <div className="uxa-inline-search"><Search size={14} /><input placeholder="Search templates…" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <label className="uxa-checkbox"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> Show archived</label>
+              <button className="uxa-btn" onClick={() => fileInputRef.current?.click()}><Upload size={14} /> Import</button>
+              <input ref={fileInputRef} type="file" accept=".json" hidden onChange={(e) => handleImportFile(e.target.files[0])} />
+              <button className="uxa-btn primary" onClick={() => setBuilder("new")}><Plus size={14} /> New Template</button>
+            </div>
+          </div>
+          <div className="uxa-scope-row" style={{ marginBottom: 16 }}>
+            <button className={`uxa-chip ${category === "all" ? "active" : ""}`} onClick={() => setCategory("all")}>All</button>
+            {TEMPLATE_CATEGORIES.map((c) => <button key={c} className={`uxa-chip ${category === c ? "active" : ""}`} onClick={() => setCategory(c)}>{c}</button>)}
+          </div>
+
+          <div className="uxa-templates-grid">
+            {filtered.map((t) => (
+              <TemplateCard
+                key={t.id} template={t}
+                onPreview={() => setPreview(t)}
+                onDuplicate={() => onDuplicate(t.id)}
+                onEdit={() => setBuilder(t)}
+                onArchive={() => onArchive(t.id)}
+                onUnarchive={() => onUnarchive(t.id)}
+                onDelete={() => onDelete(t.id)}
+                onToggleFavorite={() => onToggleFavorite(t.id)}
+                onUse={() => setAssignFor([t.id])}
+                onVersions={() => setVersionsFor(t)}
+              />
+            ))}
+            {filtered.length === 0 && <div className="uxa-empty" style={{ gridColumn: "1 / -1" }}>No templates match your filters.</div>}
+          </div>
+
+          <div className="uxa-panel" style={{ marginTop: 20 }}>
+            <div className="uxa-panel-head"><h3 style={{ margin: 0 }}>Recent audit runs</h3></div>
+            <table className="uxa-table">
+              <thead><tr><th>Target</th><th>Templates</th><th>Status</th><th>Started</th><th></th></tr></thead>
+              <tbody>
+                {auditRuns.slice(0, 10).map((r) => (
+                  <tr key={r.id}>
+                    <td className="uxa-cell-strong">{r.targetLabel}</td>
+                    <td>{r.templateIds.map((id) => templates.find((t) => t.id === id)?.name).filter(Boolean).join(" + ")}</td>
+                    <td><span className={`uxa-pill ${r.status === "completed" ? "status-active" : "status-InProgress"}`}>{r.status === "completed" ? "Completed" : "In Progress"}</span></td>
+                    <td className="uxa-text-muted">{relTime(r.startedAt)}</td>
+                    <td className="uxa-row-actions">
+                      <button className="uxa-btn tiny" onClick={() => onOpenRun(r.id)}>Open</button>
+                      <button onClick={() => onDeleteRun(r.id)}><Trash2 size={13} /></button>
+                    </td>
+                  </tr>
+                ))}
+                {auditRuns.length === 0 && <tr><td colSpan={5} className="uxa-empty">No audits run yet — pick a template and hit "Use Template".</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {tab === "analytics" && <TemplateAnalyticsTab templates={templates} auditRuns={auditRuns} />}
+
+      {preview && (
+        <TemplateDetailModal template={preview} onClose={() => setPreview(null)}
+          onEdit={() => { setBuilder(preview); setPreview(null); }}
+          onDuplicate={() => { onDuplicate(preview.id); setPreview(null); }}
+          onUse={() => { setAssignFor([preview.id]); setPreview(null); }}
+        />
+      )}
+      {builder && (
+        <TemplateBuilderModal
+          template={builder === "new" ? null : builder}
+          onClose={() => setBuilder(null)}
+          onCreate={(fields) => { onCreate(fields); setBuilder(null); }}
+          onSave={(id, patch) => { onUpdate(id, patch); setBuilder(null); }}
+          onPublish={(id, note) => { onPublish(id, note); setBuilder(null); }}
+        />
+      )}
+      {versionsFor && (
+        <TemplateVersionsModal template={versionsFor} onClose={() => setVersionsFor(null)} onRestore={(entry) => { onRestoreVersion(versionsFor.id, entry); setVersionsFor(null); }} />
+      )}
+      {assignFor && (
+        <AssignTemplateModal
+          templates={templates} preselected={assignFor} projects={projects}
+          onClose={() => setAssignFor(null)}
+          onStart={(payload) => { onStartRun(payload); setAssignFor(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function TemplateCard({ template: t, onPreview, onDuplicate, onEdit, onArchive, onUnarchive, onDelete, onToggleFavorite, onUse, onVersions }) {
+  return (
+    <div className={`uxa-template-card-full ${t.status === "archived" ? "archived" : ""}`}>
+      <div className="uxa-template-card-top">
+        <span className="uxa-chip">{t.category}</span>
+        <button className={`uxa-fav-btn ${t.favorite ? "active" : ""}`} onClick={onToggleFavorite}><Star size={14} fill={t.favorite ? "currentColor" : "none"} /></button>
+      </div>
+      <h4>{t.name}</h4>
+      <p>{t.description}</p>
+      <div className="uxa-template-meta-grid">
+        <span><ListChecks size={11} /> {t.checklist.length} items</span>
+        <span><Clock size={11} /> {formatMinutes(t.estimatedMinutes)}</span>
+        <span><Gauge size={11} /> {t.difficulty}</span>
+        <span><History size={11} /> v{t.version}</span>
+      </div>
+      <div className="uxa-template-industries">
+        {(t.industry || []).slice(0, 3).map((ind) => <span key={ind} className="uxa-chip tiny">{ind}</span>)}
+      </div>
+      <div className="uxa-template-footer">
+        <span className="uxa-text-muted">By {t.createdBy} · {relTime(t.updatedAt)}</span>
+        <span className={`uxa-pill ${t.status === "published" ? "status-active" : t.status === "archived" ? "status-disabled" : "status-Draft"}`}>{t.status}</span>
+      </div>
+      <div className="uxa-template-usage"><TrendingUp size={11} /> Used {t.usageCount || 0} time{t.usageCount === 1 ? "" : "s"}</div>
+      <div className="uxa-template-actions">
+        <button title="Preview" onClick={onPreview}><Eye size={13} /></button>
+        <button title="Duplicate" onClick={onDuplicate}><Copy size={13} /></button>
+        {!t.isBuiltIn && <button title="Edit" onClick={onEdit}><Pencil size={13} /></button>}
+        <button title="Version history" onClick={onVersions}><History size={13} /></button>
+        {t.status === "archived" ? (
+          <button title="Restore" onClick={onUnarchive}><RotateCcw size={13} /></button>
+        ) : (
+          <button title="Archive" onClick={onArchive}><Archive size={13} /></button>
+        )}
+        {!t.isBuiltIn && <button title="Delete" onClick={onDelete}><Trash2 size={13} /></button>}
+        <button className="uxa-btn tiny primary" style={{ marginLeft: "auto" }} onClick={onUse}>Use Template</button>
+      </div>
+    </div>
+  );
+}
+
+function TemplateDetailModal({ template: t, onClose, onEdit, onDuplicate, onUse }) {
+  return (
+    <div className="uxa-modal-overlay top" onClick={onClose}>
+      <div className="uxa-modal wide" onClick={(e) => e.stopPropagation()}>
+        <div className="uxa-modal-head"><h3>{t.name}</h3><button onClick={onClose}><X size={16} /></button></div>
+        <p className="uxa-text-muted" style={{ marginTop: -6 }}>{t.description}</p>
+        <div className="uxa-template-meta-grid" style={{ marginBottom: 14 }}>
+          <span><Tag size={11} /> {t.category}</span>
+          <span><ListChecks size={11} /> {t.checklist.length} items</span>
+          <span><Clock size={11} /> {formatMinutes(t.estimatedMinutes)}</span>
+          <span><Gauge size={11} /> {t.difficulty}</span>
+          <span><Layers3 size={11} /> {SCORING_MODELS.find((m) => m.id === t.scoringModel)?.label}</span>
+        </div>
+        <h4 style={{ fontSize: 12.5 }}>Purpose</h4>
+        <p style={{ fontSize: 12.5 }}>{t.purpose}</p>
+        <h4 style={{ fontSize: 12.5, marginTop: 14 }}>Checklist ({t.checklist.length})</h4>
+        <div className="uxa-checklist-preview">
+          {t.checklist.map((c) => (
+            <div className="uxa-checklist-preview-item" key={c.id}>
+              <div className="uxa-checklist-preview-head"><strong>{c.title}</strong><span className="uxa-chip tiny">{c.category}</span></div>
+              <p>{c.description}</p>
+              {c.bestPractice && <p className="uxa-text-muted"><em>Best practice:</em> {c.bestPractice}</p>}
+              {c.referenceLink && <p className="uxa-text-muted">Reference: {c.referenceLink}</p>}
+            </div>
+          ))}
+        </div>
+        <div className="uxa-modal-actions">
+          <button className="uxa-btn" onClick={onClose}>Close</button>
+          <button className="uxa-btn" onClick={onDuplicate}><Copy size={13} /> Duplicate</button>
+          {!t.isBuiltIn && <button className="uxa-btn" onClick={onEdit}><Pencil size={13} /> Edit</button>}
+          <button className="uxa-btn primary" onClick={onUse}>Use Template</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TemplateVersionsModal({ template: t, onClose, onRestore }) {
+  return (
+    <div className="uxa-modal-overlay" onClick={onClose}>
+      <div className="uxa-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="uxa-modal-head"><h3>Version history — {t.name}</h3><button onClick={onClose}><X size={16} /></button></div>
+        <p className="uxa-text-muted" style={{ marginTop: -6 }}>Current version: v{t.version}</p>
+        <ul className="uxa-timeline">
+          {(t.versionHistory || []).map((h, i) => (
+            <li key={i}>
+              <span className="uxa-timeline-dot" />
+              <div>
+                <p>v{h.version} — {h.note}</p>
+                <span>{relTime(h.publishedAt)}</span>
+                <button className="uxa-btn tiny" style={{ marginLeft: 10 }} onClick={() => onRestore(h)}>Restore</button>
+              </div>
+            </li>
+          ))}
+          {(!t.versionHistory || t.versionHistory.length === 0) && <div className="uxa-empty">No published versions yet.</div>}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+function TemplateAnalyticsTab({ templates, auditRuns }) {
+  const mostUsed = [...templates].sort((a, b) => (b.usageCount || 0) - (a.usageCount || 0)).slice(0, 6);
+  const completed = auditRuns.filter((r) => r.status === "completed");
+  const completionRate = auditRuns.length ? Math.round((completed.length / auditRuns.length) * 100) : 0;
+
+  const avgScores = templates.map((t) => {
+    const runs = auditRuns.filter((r) => r.templateIds.includes(t.id) && r.status === "completed");
+    if (!runs.length) return null;
+    const scores = runs.map((r) => computeAuditScores([t], r).overall.value);
+    const avg = scores.reduce((s, v) => s + v, 0) / scores.length;
+    return { name: t.name, avg: Math.round(avg), runs: runs.length };
+  }).filter(Boolean).sort((a, b) => b.avg - a.avg);
+
+  const categoryTally = {};
+  templates.forEach((t) => t.checklist.forEach((c) => { categoryTally[c.category] = (categoryTally[c.category] || 0) + 1; }));
+  const topCategories = Object.entries(categoryTally).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+  return (
+    <div>
+      <div className="uxa-cards-grid">
+        <div className="uxa-stat-card"><div className="uxa-stat-icon"><LayoutTemplate size={16} /></div><div className="uxa-stat-value">{templates.length}</div><div className="uxa-stat-label">Total Templates</div></div>
+        <div className="uxa-stat-card"><div className="uxa-stat-icon"><PlayCircle size={16} /></div><div className="uxa-stat-value">{auditRuns.length}</div><div className="uxa-stat-label">Audit Runs</div></div>
+        <div className="uxa-stat-card"><div className="uxa-stat-icon"><CheckCircle2 size={16} /></div><div className="uxa-stat-value">{completionRate}%</div><div className="uxa-stat-label">Completion Rate</div></div>
+        <div className="uxa-stat-card"><div className="uxa-stat-icon"><Gauge size={16} /></div><div className="uxa-stat-value">{avgScores.length ? Math.round(avgScores.reduce((s, a) => s + a.avg, 0) / avgScores.length) : 0}</div><div className="uxa-stat-label">Average Score</div></div>
+      </div>
+      <div className="uxa-dash-grid2">
+        <div className="uxa-panel">
+          <h3>Most used templates</h3>
+          <table className="uxa-table">
+            <thead><tr><th>Template</th><th>Uses</th></tr></thead>
+            <tbody>{mostUsed.map((t) => <tr key={t.id}><td>{t.name}</td><td>{t.usageCount || 0}</td></tr>)}</tbody>
+          </table>
+        </div>
+        <div className="uxa-panel">
+          <h3>Template effectiveness (avg score)</h3>
+          <table className="uxa-table">
+            <thead><tr><th>Template</th><th>Avg score</th><th>Runs</th></tr></thead>
+            <tbody>
+              {avgScores.map((a) => <tr key={a.name}><td>{a.name}</td><td>{a.avg}</td><td>{a.runs}</td></tr>)}
+              {avgScores.length === 0 && <tr><td colSpan={3} className="uxa-empty">Complete an audit to see effectiveness data.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div className="uxa-panel">
+        <h3>Checklist coverage by category</h3>
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart data={topCategories.map(([name, value]) => ({ name, value }))}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+            <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} />
+            <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} />
+            <Tooltip />
+            <Bar dataKey="value" fill="#3B5BDB" radius={[6, 6, 0, 0]} maxBarSize={40} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+function blankChecklistItem() {
+  return { id: uid("chk"), title: "", description: "", category: "Content", area: "Content", severity: "medium", weightage: 5, required: true, expectedResult: "", examples: "", bestPractice: "", referenceLink: "", aiPrompt: "", evaluationType: "pass_fail" };
+}
+
+function TemplateBuilderModal({ template, onClose, onCreate, onSave, onPublish }) {
+  const isEdit = !!template;
+  const [name, setName] = useState(template?.name || "");
+  const [category, setCategory] = useState(template?.category || TEMPLATE_CATEGORIES[0]);
+  const [description, setDescription] = useState(template?.description || "");
+  const [purpose, setPurpose] = useState(template?.purpose || "");
+  const [industry, setIndustry] = useState(template?.industry || []);
+  const [difficulty, setDifficulty] = useState(template?.difficulty || "Intermediate");
+  const [scoringModel, setScoringModel] = useState(template?.scoringModel || "percentage");
+  const [checklist, setChecklist] = useState(template?.checklist?.length ? template.checklist : [blankChecklistItem()]);
+  const [expanded, setExpanded] = useState(() => new Set());
+  const [publishNote, setPublishNote] = useState("");
+  const [error, setError] = useState("");
+
+  function toggleIndustry(i) { setIndustry((prev) => (prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i])); }
+  function toggleExpand(id) { setExpanded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); }
+  function updateItem(id, patch) { setChecklist((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c))); }
+  function removeItem(id) { setChecklist((prev) => prev.filter((c) => c.id !== id)); }
+  function addItem() { const item = blankChecklistItem(); setChecklist((prev) => [...prev, item]); setExpanded((prev) => new Set([...prev, item.id])); }
+  function moveItem(idx, dir) {
+    setChecklist((prev) => {
+      const next = [...prev];
+      const target = idx + dir;
+      if (target < 0 || target >= next.length) return prev;
+      [next[idx], next[target]] = [next[target], next[idx]];
+      return next;
+    });
+  }
+
+  function buildFields() {
+    return { name: name.trim(), category, description, purpose, industry, difficulty, scoringModel, checklist };
+  }
+
+  function handleSave() {
+    if (!name.trim()) { setError("Template name is required."); return; }
+    if (checklist.length === 0) { setError("Add at least one checklist item."); return; }
+    setError("");
+    if (isEdit) onSave(template.id, buildFields());
+    else onCreate(buildFields());
+  }
+  function handlePublish() {
+    if (!name.trim()) { setError("Template name is required."); return; }
+    setError("");
+    if (isEdit) { onSave(template.id, buildFields()); onPublish(template.id, publishNote); }
+    else onCreate({ ...buildFields(), status: "published" });
+  }
+
+  return (
+    <div className="uxa-modal-overlay top" onClick={onClose}>
+      <div className="uxa-import-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="uxa-export-head">
+          <div><h2>{isEdit ? `Edit ${template.name}` : "New Audit Template"}</h2><p>Define what should be reviewed and how it's scored</p></div>
+          <button onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="uxa-import-body">
+          <div className="uxa-import-main">
+            <div className="uxa-branding-grid">
+              <div className="uxa-form-field"><label>Template name *</label><input value={name} onChange={(e) => setName(e.target.value)} /></div>
+              <div className="uxa-form-field"><label>Category</label>
+                <select value={category} onChange={(e) => setCategory(e.target.value)}>{TEMPLATE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+              </div>
+              <div className="uxa-form-field"><label>Difficulty</label>
+                <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}><option>Beginner</option><option>Intermediate</option><option>Advanced</option></select>
+              </div>
+              <div className="uxa-form-field" style={{ gridColumn: "span 3" }}><label>Description</label><input value={description} onChange={(e) => setDescription(e.target.value)} /></div>
+              <div className="uxa-form-field" style={{ gridColumn: "span 3" }}><label>Purpose</label><textarea rows={2} className="uxa-import-textarea" value={purpose} onChange={(e) => setPurpose(e.target.value)} /></div>
+              <div className="uxa-form-field" style={{ gridColumn: "span 2" }}><label>Industry / product type</label>
+                <div className="uxa-chip-cloud">{TEMPLATE_CATEGORIES.map((c) => <button key={c} type="button" className={`uxa-chip tiny ${industry.includes(c) ? "active" : ""}`} onClick={() => toggleIndustry(c)}>{c}</button>)}</div>
+              </div>
+              <div className="uxa-form-field"><label>Scoring model</label>
+                <select value={scoringModel} onChange={(e) => setScoringModel(e.target.value)}>{SCORING_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select>
+              </div>
+            </div>
+
+            <div className="uxa-panel-head" style={{ marginTop: 10 }}>
+              <h3 style={{ margin: 0, fontSize: 13 }}>Checklist ({checklist.length} items)</h3>
+              <button className="uxa-btn tiny" onClick={addItem}><Plus size={12} /> Add item</button>
+            </div>
+
+            <div className="uxa-checklist-builder">
+              {checklist.map((c, idx) => (
+                <div className="uxa-checklist-item-editor" key={c.id}>
+                  <div className="uxa-checklist-item-row" onClick={() => toggleExpand(c.id)}>
+                    {expanded.has(c.id) ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                    <span className="uxa-cell-strong">{c.title || "Untitled item"}</span>
+                    <span className="uxa-chip tiny">{c.category}</span>
+                    <div className="uxa-tree-row-actions" style={{ opacity: 1, marginLeft: "auto" }} onClick={(e) => e.stopPropagation()}>
+                      <button onClick={() => moveItem(idx, -1)}><ChevronUp size={12} /></button>
+                      <button onClick={() => moveItem(idx, 1)}><ChevronDown size={12} /></button>
+                      <button onClick={() => removeItem(c.id)}><Trash2 size={12} /></button>
+                    </div>
+                  </div>
+                  {expanded.has(c.id) && (
+                    <div className="uxa-checklist-item-fields">
+                      <div className="uxa-form-field"><label>Title</label><input value={c.title} onChange={(e) => updateItem(c.id, { title: e.target.value })} /></div>
+                      <div className="uxa-form-field"><label>Category</label><input value={c.category} onChange={(e) => updateItem(c.id, { category: e.target.value })} /></div>
+                      <div className="uxa-form-field"><label>Area</label><input value={c.area} onChange={(e) => updateItem(c.id, { area: e.target.value })} /></div>
+                      <div className="uxa-form-field" style={{ gridColumn: "span 3" }}><label>Description</label><textarea rows={2} className="uxa-import-textarea" value={c.description} onChange={(e) => updateItem(c.id, { description: e.target.value })} /></div>
+                      <div className="uxa-form-field"><label>Default severity</label>
+                        <select value={c.severity} onChange={(e) => updateItem(c.id, { severity: e.target.value })}><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select>
+                      </div>
+                      <div className="uxa-form-field"><label>Weightage (1-10)</label><input type="number" min="1" max="10" value={c.weightage} onChange={(e) => updateItem(c.id, { weightage: Number(e.target.value) })} /></div>
+                      <div className="uxa-form-field"><label>Evaluation type</label>
+                        <select value={c.evaluationType} onChange={(e) => updateItem(c.id, { evaluationType: e.target.value })}><option value="pass_fail">Pass/Fail</option><option value="rating">Star rating</option><option value="both">Both</option><option value="numeric">Numeric</option></select>
+                      </div>
+                      <div className="uxa-form-field"><label className="uxa-checkbox"><input type="checkbox" checked={c.required} onChange={(e) => updateItem(c.id, { required: e.target.checked })} /> Required item</label></div>
+                      <div className="uxa-form-field" style={{ gridColumn: "span 2" }}><label>Expected result</label><input value={c.expectedResult} onChange={(e) => updateItem(c.id, { expectedResult: e.target.value })} /></div>
+                      <div className="uxa-form-field" style={{ gridColumn: "span 3" }}><label>Best practice</label><input value={c.bestPractice} onChange={(e) => updateItem(c.id, { bestPractice: e.target.value })} /></div>
+                      <div className="uxa-form-field" style={{ gridColumn: "span 2" }}><label>Examples</label><input value={c.examples} onChange={(e) => updateItem(c.id, { examples: e.target.value })} /></div>
+                      <div className="uxa-form-field"><label>Reference link</label><input value={c.referenceLink} onChange={(e) => updateItem(c.id, { referenceLink: e.target.value })} /></div>
+                      <div className="uxa-form-field" style={{ gridColumn: "span 3" }}><label>AI prompt (used for AI Assist on this item)</label><input value={c.aiPrompt} onChange={(e) => updateItem(c.id, { aiPrompt: e.target.value })} /></div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="uxa-export-preview">
+            <div className="uxa-preview-label"><Info size={12} /> Publish</div>
+            <p className="uxa-text-muted" style={{ fontSize: 11.5 }}>Save as draft to keep iterating, or publish to snapshot this as a new version teams can rely on.</p>
+            <div className="uxa-form-field"><label>Publish note (optional)</label><input value={publishNote} onChange={(e) => setPublishNote(e.target.value)} placeholder="What changed?" /></div>
+            {isEdit && <p className="uxa-text-muted" style={{ fontSize: 11 }}>Current version: v{template.version} · {template.status}</p>}
+          </div>
+        </div>
+        {error && <div className="uxa-login-error" style={{ margin: "0 24px" }}><Info size={13} /> {error}</div>}
+        <div className="uxa-export-footer">
+          <span className="uxa-text-muted">{checklist.length} checklist item{checklist.length === 1 ? "" : "s"}</span>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="uxa-btn" onClick={onClose}>Cancel</button>
+            <button className="uxa-btn" onClick={handleSave}><Save size={13} /> Save draft</button>
+            <button className="uxa-btn primary" onClick={handlePublish}><CheckCircle2 size={13} /> Publish</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AssignTemplateModal({ templates, preselected, projects, onClose, onStart }) {
+  const [selectedIds, setSelectedIds] = useState(new Set(preselected));
+  const [targetType, setTargetType] = useState("project");
+  const [projectId, setProjectId] = useState(projects[0]?.id || "");
+  const [moduleId, setModuleId] = useState("");
+  const [screenId, setScreenId] = useState("");
+
+  const project = projects.find((p) => p.id === projectId);
+  const modules = project?.modules || [];
+  const mod = modules.find((m) => m.id === moduleId);
+  const screens = mod?.screens || [];
+
+  function toggle(id) { setSelectedIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); }
+
+  function start() {
+    let targetId = "all", targetLabel = "Entire Organization (all projects)";
+    if (targetType === "project") { targetId = project?.id; targetLabel = project?.name || "Project"; }
+    if (targetType === "module") { targetId = mod?.id; targetLabel = `${project?.name || ""} / ${mod?.name || "Module"}`; }
+    if (targetType === "screen") { const s = screens.find((x) => x.id === screenId); targetId = s?.id; targetLabel = `${project?.name || ""} / ${mod?.name || ""} / ${s?.name || "Screen"}`; }
+    if (!targetId) return;
+    onStart({ templateIds: [...selectedIds], targetType, targetId, targetLabel });
+  }
+
+  return (
+    <div className="uxa-modal-overlay" onClick={onClose}>
+      <div className="uxa-modal wide" onClick={(e) => e.stopPropagation()}>
+        <div className="uxa-modal-head"><h3>Start an audit</h3><button onClick={onClose}><X size={16} /></button></div>
+
+        <div className="uxa-form-field">
+          <label>Templates (combine more than one if you like)</label>
+          <div className="uxa-picker-list">
+            {templates.filter((t) => t.status !== "archived").map((t) => (
+              <label key={t.id} className="uxa-checkbox"><input type="checkbox" checked={selectedIds.has(t.id)} onChange={() => toggle(t.id)} /> {t.name} <span className="uxa-text-muted">({t.checklist.length} items)</span></label>
+            ))}
+          </div>
+        </div>
+
+        <div className="uxa-form-field">
+          <label>Assign to</label>
+          <div className="uxa-scope-row">
+            {["project", "module", "screen", "organization"].map((tt) => (
+              <button key={tt} className={`uxa-chip ${targetType === tt ? "active" : ""}`} onClick={() => setTargetType(tt)}>{tt === "organization" ? "Entire Organization" : tt.charAt(0).toUpperCase() + tt.slice(1)}</button>
+            ))}
+          </div>
+        </div>
+
+        {targetType !== "organization" && (
+          <div className="uxa-filter-grid">
+            <select value={projectId} onChange={(e) => { setProjectId(e.target.value); setModuleId(""); setScreenId(""); }}>
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            {(targetType === "module" || targetType === "screen") && (
+              <select value={moduleId} onChange={(e) => { setModuleId(e.target.value); setScreenId(""); }}>
+                <option value="">Select module…</option>
+                {modules.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            )}
+            {targetType === "screen" && (
+              <select value={screenId} onChange={(e) => setScreenId(e.target.value)}>
+                <option value="">Select screen…</option>
+                {screens.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            )}
+          </div>
+        )}
+
+        <div className="uxa-modal-actions">
+          <button className="uxa-btn" onClick={onClose}>Cancel</button>
+          <button className="uxa-btn primary" disabled={selectedIds.size === 0} onClick={start}><PlayCircle size={14} /> Start audit</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AuditRunView({ run, templates, severities, onUpdateResult, onComplete, onExit, onCreateIssue, projects, showToast }) {
+  const runTemplates = useMemo(() => templates.filter((t) => run && run.templateIds.includes(t.id)), [templates, run]);
+  const scores = useMemo(() => (run ? computeAuditScores(runTemplates, run) : null), [runTemplates, run]);
+  const [showAllModels, setShowAllModels] = useState(false);
+
+  if (!run) return <div className="uxa-panel uxa-empty-state"><h3>Audit run not found</h3><button className="uxa-btn" onClick={onExit}>Back to templates</button></div>;
+
+  const allItems = runTemplates.flatMap((t) => t.checklist.map((c) => ({ ...c, __templateName: t.name })));
+  const grouped = {};
+  allItems.forEach((it) => { const cat = it.category || "Other"; if (!grouped[cat]) grouped[cat] = []; grouped[cat].push(it); });
+
+  return (
+    <div>
+      <div className="uxa-panel uxa-run-header">
+        <div>
+          <button className="uxa-auth-back" style={{ marginBottom: 6 }} onClick={onExit}><ArrowLeft size={13} /> Back to templates</button>
+          <h2 style={{ margin: "2px 0 4px", fontSize: 18 }}>{run.targetLabel}</h2>
+          <p className="uxa-text-muted" style={{ margin: 0, fontSize: 12 }}>{runTemplates.map((t) => t.name).join(" + ")} · {allItems.length} checklist items</p>
+        </div>
+        {run.status === "in_progress" ? (
+          <button className="uxa-btn primary" onClick={() => onComplete(run.id)}><CheckCircle2 size={14} /> Mark complete</button>
+        ) : (
+          <span className="uxa-pill status-active">Completed</span>
+        )}
+      </div>
+
+      <div className="uxa-run-grid">
+        <div className="uxa-run-main">
+          {Object.entries(grouped).map(([cat, items]) => (
+            <div className="uxa-panel" key={cat}>
+              <h3>{cat}</h3>
+              {items.map((item) => (
+                <ChecklistItemRow key={item.id} item={item} run={run} severities={severities}
+                  onUpdateResult={(patch) => onUpdateResult(run.id, item.id, patch)}
+                  onCreateIssue={run.targetType === "screen" ? onCreateIssue : null}
+                  targetScreenId={run.targetType === "screen" ? run.targetId : null}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+
+        <aside className="uxa-panel uxa-run-scores">
+          <h3>Score</h3>
+          <div className="uxa-run-score-hero">
+            <div className="uxa-run-score-value">{scores.overall.display}</div>
+            <span className="uxa-text-muted">{SCORING_MODELS.find((m) => m.id === scores.overall.model)?.label}</span>
+          </div>
+          {scores.byTemplate.length > 1 && (
+            <div className="uxa-summary-row-group" style={{ marginTop: 10 }}>
+              {scores.byTemplate.map((t) => (
+                <div className="uxa-summary-row" key={t.templateId}><span>{t.templateName}</span><strong>{t.display}</strong></div>
+              ))}
+            </div>
+          )}
+          <button className="uxa-btn tiny" style={{ marginTop: 10 }} onClick={() => setShowAllModels((v) => !v)}>{showAllModels ? "Hide" : "Show"} all scoring models</button>
+          {showAllModels && (
+            <div className="uxa-summary-row-group" style={{ marginTop: 8 }}>
+              {scores.allModels.map((m) => <div className="uxa-summary-row" key={m.id}><span>{m.label}</span><strong>{m.display}</strong></div>)}
+            </div>
+          )}
+          <div className="uxa-summary-divider" />
+          <h4 style={{ fontSize: 11.5, textTransform: "uppercase", color: "var(--text-faint)", margin: "0 0 8px" }}>By category</h4>
+          {scores.byCategory.map((c) => (
+            <div className="uxa-summary-row" key={c.category}><span>{c.category}</span><strong>{c.evaluated ? `${c.percentage}%` : "—"}</strong></div>
+          ))}
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function ChecklistItemRow({ item, run, severities, onUpdateResult, onCreateIssue, targetScreenId }) {
+  const result = run.results[item.id] || {};
+  const [notes, setNotes] = useState(result.notes || "");
+  const [aiBusy, setAiBusy] = useState("");
+  const [aiOutput, setAiOutput] = useState(null); // { label, text }
+
+  function setStatus(status) { onUpdateResult({ status, severity: status === "fail" ? (result.severity || item.severity) : result.severity }); }
+  function commitNotes() { if (notes !== result.notes) onUpdateResult({ notes }); }
+
+  const AI_ACTIONS = [
+    { id: "explain", label: "Explain", prompt: () => `Explain what "${item.title}" means for this screen and what a failure looks like in 2-3 sentences.` },
+    { id: "recommend", label: "Recommend", prompt: () => `Issue: ${item.title} — ${item.description}\nWrite a specific, actionable recommendation to fix this. 1-3 sentences.` },
+    { id: "severity", label: "Severity", prompt: () => `Issue: ${item.title} — ${item.description}\nClassify severity as exactly one word: critical, high, medium, or low.` },
+    { id: "bestpractice", label: "Best Practice", prompt: () => `Give 2-3 concise UX best practices relevant to "${item.title}" in the context of ${item.category}.` },
+    { id: "redesign", label: "Redesign Prompt", prompt: () => `Write a single AI image/design generation prompt that could redesign this element to fix: ${item.title} — ${item.description}. One paragraph, concrete visual details.` },
+    { id: "effort", label: "Est. Effort", prompt: () => `Issue: ${item.title}\nEstimate the engineering/design effort to fix this as one of: Small (< 1 day), Medium (1-3 days), Large (1+ week). Respond with just the label and one sentence why.` },
+    { id: "acceptance", label: "Acceptance Criteria", prompt: () => `Write 2-4 bullet-point acceptance criteria for a ticket that fixes: ${item.title} — ${item.description}` },
+  ];
+
+  async function runAI(action) {
+    setAiBusy(action.id);
+    try {
+      const text = await callClaude(action.prompt(), item.aiPrompt || undefined);
+      setAiOutput({ label: action.label, text });
+      if (action.id === "severity") {
+        const found = severities.find((s) => text.toLowerCase().includes(s.id));
+        if (found) onUpdateResult({ severity: found.id });
+      }
+      if (action.id === "recommend") onUpdateResult({ recommendation: text });
+    } catch (e) { setAiOutput({ label: action.label, text: "Could not reach the AI service." }); }
+    setAiBusy("");
+  }
+
+  return (
+    <div className="uxa-checklist-run-item">
+      <div className="uxa-checklist-run-head">
+        <div>
+          <strong>{item.title}</strong>
+          {item.required && <span className="uxa-chip tiny">Required</span>}
+        </div>
+        <span className="uxa-text-muted" style={{ fontSize: 10.5 }}>Weight {item.weightage}</span>
+      </div>
+      <p className="uxa-text-muted" style={{ fontSize: 12 }}>{item.description}</p>
+      {item.bestPractice && <p style={{ fontSize: 11.5 }}><em>Best practice:</em> {item.bestPractice}</p>}
+      {item.referenceLink && <p className="uxa-text-muted" style={{ fontSize: 11 }}>Ref: {item.referenceLink}</p>}
+
+      <div className="uxa-checklist-run-controls">
+        {(item.evaluationType === "pass_fail" || item.evaluationType === "both") && (
+          <div className="uxa-passfail-row">
+            <button className={`uxa-chip ${result.status === "pass" ? "active" : ""}`} onClick={() => setStatus("pass")}><Check size={12} /> Pass</button>
+            <button className={`uxa-chip ${result.status === "fail" ? "active" : ""}`} onClick={() => setStatus("fail")}><X size={12} /> Fail</button>
+            <button className={`uxa-chip ${result.status === "na" ? "active" : ""}`} onClick={() => setStatus("na")}>N/A</button>
+          </div>
+        )}
+        {(item.evaluationType === "rating" || item.evaluationType === "both") && (
+          <div className="uxa-star-row">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button key={n} onClick={() => onUpdateResult({ rating: n, status: result.status || "pass" })}><Star size={16} fill={result.rating >= n ? "currentColor" : "none"} /></button>
+            ))}
+          </div>
+        )}
+        {item.evaluationType === "numeric" && (
+          <input type="number" min="0" max="10" className="uxa-numeric-input" placeholder="0-10" value={result.numericValue ?? ""} onChange={(e) => onUpdateResult({ numericValue: Number(e.target.value), status: "pass" })} />
+        )}
+        {result.status === "fail" && (
+          <select value={result.severity || item.severity} onChange={(e) => onUpdateResult({ severity: e.target.value })}>
+            {severities.map((s) => <option key={s.id} value={s.id}>{s.icon} {s.label}</option>)}
+          </select>
+        )}
+      </div>
+
+      <textarea className="uxa-import-textarea" rows={2} placeholder="Notes…" value={notes} onChange={(e) => setNotes(e.target.value)} onBlur={commitNotes} style={{ marginTop: 8 }} />
+
+      <div className="uxa-ai-actions-row">
+        {AI_ACTIONS.map((a) => (
+          <button key={a.id} className="uxa-btn ai tiny" disabled={!!aiBusy} onClick={() => runAI(a)}>
+            {aiBusy === a.id ? <Loader2 size={11} className="spin" /> : <Sparkles size={11} />} {a.label}
+          </button>
+        ))}
+        {onCreateIssue && result.status === "fail" && (
+          <button className="uxa-btn tiny primary" onClick={() => onCreateIssue("new", targetScreenId, null)}><Plus size={11} /> Create Issue</button>
+        )}
+      </div>
+      {aiOutput && <div className="uxa-ai-output">{aiOutput.text}</div>}
+    </div>
+  );
+}
+
 function CommandPalette({ projects, screensFlat, issuesFlat, onClose, onGoto, onOpenScreen }) {
   const [q, setQ] = useState("");
   const views = [
@@ -4174,9 +5374,55 @@ function StyleSheet() {
       .uxa-result-actions { display: flex; gap: 6px; }
       .uxa-complete-actions { display: flex; gap: 8px; }
 
+      /* Audit Templates */
+      .uxa-chip.tiny { padding: 3px 9px; font-size: 10.5px; }
+      .uxa-templates-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+      .uxa-template-card-full { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 8px; }
+      .uxa-template-card-full.archived { opacity: 0.6; }
+      .uxa-template-card-top { display: flex; justify-content: space-between; align-items: center; }
+      .uxa-template-card-full h4 { margin: 0; font-size: 14.5px; }
+      .uxa-template-card-full p { margin: 0; font-size: 11.5px; color: var(--text-muted); line-height: 1.4; min-height: 32px; }
+      .uxa-fav-btn { border: none; background: transparent; color: var(--text-faint); display: flex; }
+      .uxa-fav-btn.active { color: #F59E0B; }
+      .uxa-template-meta-grid { display: flex; flex-wrap: wrap; gap: 10px; font-size: 10.5px; color: var(--text-muted); }
+      .uxa-template-meta-grid span { display: flex; align-items: center; gap: 4px; }
+      .uxa-template-industries { display: flex; flex-wrap: wrap; gap: 4px; }
+      .uxa-template-footer { display: flex; justify-content: space-between; align-items: center; font-size: 10.5px; margin-top: 4px; }
+      .uxa-template-usage { font-size: 10.5px; color: var(--text-faint); display: flex; align-items: center; gap: 4px; }
+      .uxa-template-actions { display: flex; gap: 3px; align-items: center; border-top: 1px solid var(--border); padding-top: 10px; margin-top: 4px; }
+      .uxa-template-actions button:not(.uxa-btn) { border: none; background: transparent; color: var(--text-faint); padding: 5px; border-radius: 6px; display: flex; }
+      .uxa-template-actions button:not(.uxa-btn):hover { background: var(--bg); color: var(--primary); }
+
+      .uxa-checklist-preview { display: flex; flex-direction: column; gap: 10px; max-height: 320px; overflow-y: auto; }
+      .uxa-checklist-preview-item { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; background: var(--bg); }
+      .uxa-checklist-preview-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+      .uxa-checklist-preview-item p { margin: 2px 0; font-size: 11.5px; }
+
+      .uxa-checklist-builder { display: flex; flex-direction: column; gap: 8px; }
+      .uxa-checklist-item-editor { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); overflow: hidden; }
+      .uxa-checklist-item-row { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; }
+      .uxa-checklist-item-fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 0 12px 14px; }
+      .uxa-checklist-item-fields .uxa-form-field { margin-bottom: 0; }
+
+      .uxa-run-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
+      .uxa-run-grid { display: grid; grid-template-columns: 1fr 260px; gap: 14px; align-items: start; }
+      .uxa-run-scores { position: sticky; top: 0; }
+      .uxa-run-score-hero { text-align: center; padding: 14px 0; }
+      .uxa-run-score-value { font-size: 30px; font-weight: 800; }
+      .uxa-checklist-run-item { border-bottom: 1px solid var(--border); padding: 14px 0; }
+      .uxa-checklist-run-item:last-child { border-bottom: none; }
+      .uxa-checklist-run-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+      .uxa-checklist-run-head > div { display: flex; align-items: center; gap: 8px; }
+      .uxa-checklist-run-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+      .uxa-passfail-row { display: flex; gap: 6px; }
+      .uxa-star-row { display: flex; gap: 2px; }
+      .uxa-star-row button { border: none; background: transparent; color: #F59E0B; display: flex; padding: 2px; }
+      .uxa-numeric-input { width: 70px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 8px; background: var(--bg); }
+      .uxa-ai-actions-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+
       @media (max-width: 900px) {
         .uxa-sidebar { display: none; }
-        .uxa-workspace, .uxa-screenpane, .uxa-dash-grid, .uxa-dash-grid2, .uxa-screen-meta-grid { grid-template-columns: 1fr !important; }
+        .uxa-workspace, .uxa-screenpane, .uxa-dash-grid, .uxa-dash-grid2, .uxa-screen-meta-grid, .uxa-run-grid { grid-template-columns: 1fr !important; }
         .uxa-panel.span2 { grid-column: span 1; }
         .uxa-export-body { grid-template-columns: 1fr; }
         .uxa-export-preview { border-top: 1px solid var(--border); }
