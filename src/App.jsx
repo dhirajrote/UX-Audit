@@ -4159,14 +4159,26 @@ function AssignTemplateModal({ templates, preselected, projects, onClose, onStar
 
 function AuditRunView({ run, templates, severities, onUpdateResult, onComplete, onExit, onCreateIssue, projects, showToast }) {
   const runTemplates = useMemo(() => templates.filter((t) => run && run.templateIds.includes(t.id)), [templates, run]);
+  const allItems = useMemo(() => runTemplates.flatMap((t) => t.checklist.map((c) => ({ ...c, __templateName: t.name }))), [runTemplates]);
   const scores = useMemo(() => (run ? computeAuditScores(runTemplates, run) : null), [runTemplates, run]);
   const [showAllModels, setShowAllModels] = useState(false);
+  const [stepIndex, setStepIndex] = useState(0); // 0..allItems.length-1 = items, allItems.length = review step
 
   if (!run) return <div className="uxa-panel uxa-empty-state"><h3>Audit run not found</h3><button className="uxa-btn" onClick={onExit}>Back to templates</button></div>;
 
-  const allItems = runTemplates.flatMap((t) => t.checklist.map((c) => ({ ...c, __templateName: t.name })));
-  const grouped = {};
-  allItems.forEach((it) => { const cat = it.category || "Other"; if (!grouped[cat]) grouped[cat] = []; grouped[cat].push(it); });
+  const totalSteps = allItems.length + 1;
+  const isReviewStep = stepIndex >= allItems.length;
+  const currentItem = !isReviewStep ? allItems[stepIndex] : null;
+
+  function isAnswered(item) {
+    const r = run.results[item.id];
+    return !!(r && (r.status || typeof r.rating === "number" || typeof r.numericValue === "number"));
+  }
+  const answeredCount = allItems.filter(isAnswered).length;
+  const progressPct = Math.round(((isReviewStep ? allItems.length : stepIndex) / allItems.length) * 100);
+
+  function goNext() { setStepIndex((i) => Math.min(i + 1, totalSteps - 1)); }
+  function goBack() { setStepIndex((i) => Math.max(i - 1, 0)); }
 
   return (
     <div>
@@ -4174,57 +4186,97 @@ function AuditRunView({ run, templates, severities, onUpdateResult, onComplete, 
         <div>
           <button className="uxa-auth-back" style={{ marginBottom: 6 }} onClick={onExit}><ArrowLeft size={13} /> Back to templates</button>
           <h2 style={{ margin: "2px 0 4px", fontSize: 18 }}>{run.targetLabel}</h2>
-          <p className="uxa-text-muted" style={{ margin: 0, fontSize: 12 }}>{runTemplates.map((t) => t.name).join(" + ")} · {allItems.length} checklist items</p>
+          <p className="uxa-text-muted" style={{ margin: 0, fontSize: 12 }}>{runTemplates.map((t) => t.name).join(" + ")} · {answeredCount}/{allItems.length} answered</p>
         </div>
         {run.status === "in_progress" ? (
-          <button className="uxa-btn primary" onClick={() => onComplete(run.id)}><CheckCircle2 size={14} /> Mark complete</button>
+          <span className="uxa-pill status-InProgress">In Progress</span>
         ) : (
           <span className="uxa-pill status-active">Completed</span>
         )}
       </div>
 
-      <div className="uxa-run-grid">
-        <div className="uxa-run-main">
-          {Object.entries(grouped).map(([cat, items]) => (
-            <div className="uxa-panel" key={cat}>
-              <h3>{cat}</h3>
-              {items.map((item) => (
-                <ChecklistItemRow key={item.id} item={item} run={run} severities={severities}
-                  onUpdateResult={(patch) => onUpdateResult(run.id, item.id, patch)}
-                  onCreateIssue={run.targetType === "screen" ? onCreateIssue : null}
-                  targetScreenId={run.targetType === "screen" ? run.targetId : null}
-                />
-              ))}
-            </div>
-          ))}
-        </div>
-
-        <aside className="uxa-panel uxa-run-scores">
-          <h3>Score</h3>
-          <div className="uxa-run-score-hero">
-            <div className="uxa-run-score-value">{scores.overall.display}</div>
-            <span className="uxa-text-muted">{SCORING_MODELS.find((m) => m.id === scores.overall.model)?.label}</span>
-          </div>
-          {scores.byTemplate.length > 1 && (
-            <div className="uxa-summary-row-group" style={{ marginTop: 10 }}>
-              {scores.byTemplate.map((t) => (
-                <div className="uxa-summary-row" key={t.templateId}><span>{t.templateName}</span><strong>{t.display}</strong></div>
-              ))}
-            </div>
-          )}
-          <button className="uxa-btn tiny" style={{ marginTop: 10 }} onClick={() => setShowAllModels((v) => !v)}>{showAllModels ? "Hide" : "Show"} all scoring models</button>
-          {showAllModels && (
-            <div className="uxa-summary-row-group" style={{ marginTop: 8 }}>
-              {scores.allModels.map((m) => <div className="uxa-summary-row" key={m.id}><span>{m.label}</span><strong>{m.display}</strong></div>)}
-            </div>
-          )}
-          <div className="uxa-summary-divider" />
-          <h4 style={{ fontSize: 11.5, textTransform: "uppercase", color: "var(--text-faint)", margin: "0 0 8px" }}>By category</h4>
-          {scores.byCategory.map((c) => (
-            <div className="uxa-summary-row" key={c.category}><span>{c.category}</span><strong>{c.evaluated ? `${c.percentage}%` : "—"}</strong></div>
-          ))}
-        </aside>
+      <div className="uxa-wizard-progress-wrap">
+        <div className="uxa-progress-track"><div className="uxa-progress-fill" style={{ width: `${progressPct}%` }} /></div>
+        <span className="uxa-text-muted" style={{ fontSize: 11 }}>{isReviewStep ? "Review" : `Item ${stepIndex + 1} of ${allItems.length}`}</span>
       </div>
+      <div className="uxa-wizard-dots">
+        {allItems.map((it, i) => (
+          <button key={it.id} title={it.title}
+            className={`uxa-wizard-dot ${i === stepIndex && !isReviewStep ? "current" : ""} ${isAnswered(it) ? "answered" : ""}`}
+            onClick={() => setStepIndex(i)} />
+        ))}
+        <button className={`uxa-wizard-dot review ${isReviewStep ? "current" : ""}`} title="Review & score" onClick={() => setStepIndex(allItems.length)}><Gauge size={10} /></button>
+      </div>
+
+      {!isReviewStep ? (
+        <div className="uxa-panel uxa-wizard-step">
+          <span className="uxa-chip tiny" style={{ marginBottom: 8 }}>{currentItem.category}{runTemplates.length > 1 ? ` · ${currentItem.__templateName}` : ""}</span>
+          <ChecklistItemRow item={currentItem} run={run} severities={severities}
+            onUpdateResult={(patch) => onUpdateResult(run.id, currentItem.id, patch)}
+            onCreateIssue={run.targetType === "screen" ? onCreateIssue : null}
+            targetScreenId={run.targetType === "screen" ? run.targetId : null}
+          />
+          <div className="uxa-wizard-nav">
+            <button className="uxa-btn" onClick={goBack} disabled={stepIndex === 0}><ArrowLeft size={13} /> Back</button>
+            <span className="uxa-text-muted" style={{ fontSize: 11.5 }}>{stepIndex + 1} / {allItems.length}</span>
+            <button className="uxa-btn primary" onClick={goNext}>{stepIndex === allItems.length - 1 ? "Review & Finish" : "Next"} <ChevronRight size={13} /></button>
+          </div>
+        </div>
+      ) : (
+        <div className="uxa-run-grid">
+          <div className="uxa-panel uxa-run-main">
+            <h3>Review</h3>
+            <p className="uxa-text-muted" style={{ fontSize: 12 }}>Jump back to any item above to change an answer, or mark this audit complete.</p>
+            {allItems.filter((it) => !isAnswered(it)).length > 0 && (
+              <div className="uxa-login-error" style={{ marginBottom: 12 }}><Info size={13} /> {allItems.filter((it) => !isAnswered(it)).length} item(s) still unanswered.</div>
+            )}
+            <table className="uxa-table">
+              <thead><tr><th>Item</th><th>Category</th><th>Result</th><th></th></tr></thead>
+              <tbody>
+                {allItems.map((it, i) => {
+                  const r = run.results[it.id];
+                  return (
+                    <tr key={it.id}>
+                      <td className="uxa-cell-strong">{it.title}</td>
+                      <td>{it.category}</td>
+                      <td>{r?.status ? <span className={`uxa-pill ${r.status === "pass" ? "status-active" : r.status === "fail" ? "status-Expired" : "status-Draft"}`}>{r.status}</span> : r?.rating ? `${r.rating}★` : r?.numericValue != null ? r.numericValue : <span className="uxa-text-muted">—</span>}</td>
+                      <td><button className="uxa-btn tiny" onClick={() => setStepIndex(i)}>Edit</button></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {run.status === "in_progress" && (
+              <button className="uxa-btn primary" style={{ marginTop: 14 }} onClick={() => onComplete(run.id)}><CheckCircle2 size={14} /> Mark audit complete</button>
+            )}
+          </div>
+          <aside className="uxa-panel uxa-run-scores">
+            <h3>Score</h3>
+            <div className="uxa-run-score-hero">
+              <div className="uxa-run-score-value">{scores.overall.display}</div>
+              <span className="uxa-text-muted">{SCORING_MODELS.find((m) => m.id === scores.overall.model)?.label}</span>
+            </div>
+            {scores.byTemplate.length > 1 && (
+              <div className="uxa-summary-row-group" style={{ marginTop: 10 }}>
+                {scores.byTemplate.map((t) => (
+                  <div className="uxa-summary-row" key={t.templateId}><span>{t.templateName}</span><strong>{t.display}</strong></div>
+                ))}
+              </div>
+            )}
+            <button className="uxa-btn tiny" style={{ marginTop: 10 }} onClick={() => setShowAllModels((v) => !v)}>{showAllModels ? "Hide" : "Show"} all scoring models</button>
+            {showAllModels && (
+              <div className="uxa-summary-row-group" style={{ marginTop: 8 }}>
+                {scores.allModels.map((m) => <div className="uxa-summary-row" key={m.id}><span>{m.label}</span><strong>{m.display}</strong></div>)}
+              </div>
+            )}
+            <div className="uxa-summary-divider" />
+            <h4 style={{ fontSize: 11.5, textTransform: "uppercase", color: "var(--text-faint)", margin: "0 0 8px" }}>By category</h4>
+            {scores.byCategory.map((c) => (
+              <div className="uxa-summary-row" key={c.category}><span>{c.category}</span><strong>{c.evaluated ? `${c.percentage}%` : "—"}</strong></div>
+            ))}
+          </aside>
+        </div>
+      )}
     </div>
   );
 }
@@ -5624,6 +5676,16 @@ function StyleSheet() {
       .uxa-checklist-item-fields .uxa-form-field { margin-bottom: 0; }
 
       .uxa-run-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
+      .uxa-wizard-progress-wrap { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+      .uxa-wizard-progress-wrap .uxa-progress-track { flex: 1; }
+      .uxa-wizard-dots { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 16px; }
+      .uxa-wizard-dot { width: 10px; height: 10px; border-radius: 50%; border: none; background: var(--border); padding: 0; display: flex; align-items: center; justify-content: center; color: transparent; flex-shrink: 0; }
+      .uxa-wizard-dot.answered { background: var(--accent); }
+      .uxa-wizard-dot.current { outline: 2px solid var(--primary); outline-offset: 2px; background: var(--primary); }
+      .uxa-wizard-dot.review { width: 18px; height: 18px; border-radius: 5px; background: var(--bg); border: 1px solid var(--border); color: var(--text-faint); margin-left: 6px; }
+      .uxa-wizard-dot.review.current { background: var(--primary); color: white; outline: none; }
+      .uxa-wizard-step { max-width: 640px; margin: 0 auto; }
+      .uxa-wizard-nav { display: flex; align-items: center; justify-content: space-between; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
       .uxa-run-grid { display: grid; grid-template-columns: 1fr 260px; gap: 14px; align-items: start; }
       .uxa-run-scores { position: sticky; top: 0; }
       .uxa-run-score-hero { text-align: center; padding: 14px 0; }
