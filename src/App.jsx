@@ -658,6 +658,7 @@ function AppShell({ username, onLogout, isAdmin, seedDemo, primaryColor, default
   const [severities, setSeverities] = useState(SEVERITY_DEFAULTS);
   const [templates, setTemplates] = useState(DEFAULT_TEMPLATES);
   const [auditRuns, setAuditRuns] = useState([]);
+  const [onboardingSeen, setOnboardingSeen] = useState(false);
   const [activity, setActivity] = useState([
     { id: uid("act"), text: "Audit saved for Login", ts: Date.now() - 1000 * 60 * 12 },
     { id: uid("act"), text: "New issue UX-003 created in Dashboard / Overview", ts: Date.now() - 1000 * 60 * 60 * 2 },
@@ -724,6 +725,7 @@ function AppShell({ username, onLogout, isAdmin, seedDemo, primaryColor, default
           if (parsed.severities) setSeverities(parsed.severities);
           if (parsed.templates) setTemplates(parsed.templates);
           if (parsed.auditRuns) setAuditRuns(parsed.auditRuns);
+          if (parsed.onboardingSeen) setOnboardingSeen(true);
           if (parsed.theme) setTheme(parsed.theme);
         }
       } catch (e) { /* no saved state yet */ }
@@ -733,10 +735,10 @@ function AppShell({ username, onLogout, isAdmin, seedDemo, primaryColor, default
   useEffect(() => {
     if (!loaded) return;
     const t = setTimeout(() => {
-      saveAppState({ projects, screenTypes, areas, severities, templates, auditRuns, theme });
+      saveAppState({ projects, screenTypes, areas, severities, templates, auditRuns, onboardingSeen, theme });
     }, 500);
     return () => clearTimeout(t);
-  }, [projects, screenTypes, areas, severities, templates, auditRuns, theme, loaded]);
+  }, [projects, screenTypes, areas, severities, templates, auditRuns, onboardingSeen, theme, loaded]);
 
   /* ---- command palette keybind ---- */
   useEffect(() => {
@@ -810,6 +812,66 @@ function AppShell({ username, onLogout, isAdmin, seedDemo, primaryColor, default
     const nums = issuesFlat.filter((i) => i.auditType === auditType).map((i) => parseInt(i.id.split("-")[1], 10)).filter((n) => !isNaN(n));
     const next = (nums.length ? Math.max(...nums) : 0) + 1;
     return `${auditType}-${String(next).padStart(3, "0")}`;
+  }
+
+  // Bulk-import issues from parsed CSV rows: { module, screen, screenType?, auditType,
+  // area, summary, severity, recommendation?, aiPrompt?, status? }.
+  // Modules/screens are matched by name (case-insensitive) and created if missing.
+  function bulkImportIssues(projectId, rows) {
+    // Pre-compute the next sequential number per audit type so IDs stay
+    // contiguous across the whole batch (issuesFlat won't update mid-loop).
+    const counters = {};
+    ["UX", "UI"].forEach((t) => {
+      const nums = issuesFlat.filter((i) => i.auditType === t).map((i) => parseInt(i.id.split("-")[1], 10)).filter((n) => !isNaN(n));
+      counters[t] = (nums.length ? Math.max(...nums) : 0);
+    });
+
+    let added = 0, newModules = 0, newScreens = 0;
+    setProjects((prev) => prev.map((p) => {
+      if (p.id !== projectId) return p;
+      const modules = [...p.modules.map((m) => ({ ...m, screens: [...m.screens] }))];
+
+      rows.forEach((row) => {
+        const auditType = row.auditType === "UI" ? "UI" : "UX";
+        counters[auditType] += 1;
+        const issue = {
+          id: `${auditType}-${String(counters[auditType]).padStart(3, "0")}`,
+          auditType,
+          area: row.area || "Others",
+          summary: row.summary,
+          severity: row.severity || "medium",
+          recommendation: row.recommendation || "",
+          aiPrompt: row.aiPrompt || "",
+          status: row.status || "Open",
+          createdAt: Date.now(),
+        };
+
+        let mod = modules.find((m) => m.name.toLowerCase() === row.module.toLowerCase());
+        if (!mod) {
+          mod = { id: uid("mod"), name: row.module, screens: [] };
+          modules.push(mod);
+          newModules++;
+        }
+        let scr = mod.screens.find((s) => s.name.toLowerCase() === row.screen.toLowerCase());
+        if (!scr) {
+          scr = {
+            id: uid("scr"), name: row.screen, type: row.screenType || "screen",
+            auditTypes: ["UX", "UI"], auditDate: new Date().toISOString().slice(0, 10),
+            status: "In Progress", issues: [],
+          };
+          mod.screens = [...mod.screens, scr];
+          newScreens++;
+        }
+        const scrIdx = mod.screens.findIndex((s) => s.id === scr.id);
+        mod.screens[scrIdx] = { ...scr, issues: [...scr.issues, issue], status: "In Progress" };
+        added++;
+      });
+
+      return { ...p, modules, updatedAt: Date.now() };
+    }));
+
+    logActivity(`Bulk-imported ${added} issue(s)${newScreens ? `, created ${newScreens} screen(s)` : ""}${newModules ? `, ${newModules} module(s)` : ""}`);
+    showToast(`Imported ${added} issue${added === 1 ? "" : "s"}${newScreens ? ` (+${newScreens} new screen${newScreens === 1 ? "" : "s"})` : ""}`, "check");
   }
 
   function createProject(name, client, status) {
@@ -1069,6 +1131,7 @@ function AppShell({ username, onLogout, isAdmin, seedDemo, primaryColor, default
                 updateScreen={updateScreen} addModule={addModule} addScreen={addScreen}
                 renameModule={renameModule} deleteModule={deleteModule} deleteScreen={deleteScreen}
                 importIntoProject={importIntoProject}
+                bulkImportIssues={bulkImportIssues}
                 onOpenIssuePanel={(mode, screenId, issue) => setIssuePanel({ mode, screenId, issue })}
                 onDeleteIssue={deleteIssue}
                 onPickProject={(id) => openProject(id)}
@@ -1191,6 +1254,14 @@ function AppShell({ username, onLogout, isAdmin, seedDemo, primaryColor, default
         <div className="uxa-toast">
           <Check size={14} /> {toast.msg}
         </div>
+      )}
+
+      {loaded && !onboardingSeen && (
+        <WelcomeTour
+          username={username}
+          isAdmin={isAdmin}
+          onFinish={(goto) => { setOnboardingSeen(true); if (goto) setView(goto); }}
+        />
       )}
     </div>
   );
@@ -1971,7 +2042,7 @@ function NewProjectModal({ project, onClose, onCreate }) {
 
 /* ============================== AUDIT WORKSPACE ============================== */
 
-function AuditWorkspace({ project, projects, activeScreenId, setActiveScreenId, screenTypes, areas, severities, updateScreen, addModule, addScreen, renameModule, deleteModule, deleteScreen, importIntoProject, onOpenIssuePanel, onDeleteIssue, onPickProject, showToast, onExportProject, onExportScreen, onExportIssueList }) {
+function AuditWorkspace({ project, projects, activeScreenId, setActiveScreenId, screenTypes, areas, severities, updateScreen, addModule, addScreen, renameModule, deleteModule, deleteScreen, importIntoProject, bulkImportIssues, onOpenIssuePanel, onDeleteIssue, onPickProject, showToast, onExportProject, onExportScreen, onExportIssueList }) {
   const [expanded, setExpanded] = useState(() => new Set(project?.modules?.map((m) => m.id) || []));
   const [addingModule, setAddingModule] = useState(false);
   const [moduleName, setModuleName] = useState("");
@@ -1983,6 +2054,7 @@ function AuditWorkspace({ project, projects, activeScreenId, setActiveScreenId, 
   const [editingScreenId, setEditingScreenId] = useState(null);
   const [editScreenValue, setEditScreenValue] = useState("");
   const [importOpen, setImportOpen] = useState(false);
+  const [issueImportOpen, setIssueImportOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(true);
 
   useEffect(() => { setExpanded(new Set(project?.modules?.map((m) => m.id) || [])); }, [project?.id]);
@@ -2032,6 +2104,7 @@ function AuditWorkspace({ project, projects, activeScreenId, setActiveScreenId, 
           <span>Modules</span>
           <div style={{ display: "flex", gap: 4 }}>
             <button title="Import modules/screens" onClick={() => setImportOpen(true)}><Upload size={13} /></button>
+            <button title="Bulk import issues (CSV)" onClick={() => setIssueImportOpen(true)}><FileUp size={13} /></button>
             <button title="Export project" onClick={() => onExportProject(project.id)}><Download size={13} /></button>
             <button title="Add module" onClick={() => setAddingModule((v) => !v)}><Plus size={13} /></button>
           </div>
@@ -2125,6 +2198,14 @@ function AuditWorkspace({ project, projects, activeScreenId, setActiveScreenId, 
           project={project} screenTypes={screenTypes}
           onClose={() => setImportOpen(false)}
           onImport={(parsed, options) => { importIntoProject(project.id, parsed, options); setImportOpen(false); }}
+        />
+      )}
+
+      {issueImportOpen && (
+        <IssueImportModal
+          project={project} severities={severities} areas={areas} screenTypes={screenTypes}
+          onClose={() => setIssueImportOpen(false)}
+          onImport={(rows) => { bulkImportIssues(project.id, rows); setIssueImportOpen(false); }}
         />
       )}
       </div>
@@ -4470,6 +4551,238 @@ function ChecklistItemRow({ item, run, severities, onUpdateResult, onCreateIssue
   );
 }
 
+/* ============================== BULK ISSUE IMPORT ============================== */
+
+const ISSUE_CSV_TEMPLATE = `Module,Screen,Screen Type,Audit Type,Area,Summary,Severity,Recommendation,Status
+Checkout Flow,Cart,screen,UX,Forms,Quantity stepper allows zero without removing the item,medium,Disable decrement at 1 and offer a Remove link,Open
+Checkout Flow,Payment,screen,UI,Buttons,Place order and Apply coupon have equal visual weight,high,Make Place order the single dominant CTA,Open
+Onboarding,Permissions,popup,UX,Onboarding,All permissions requested on first launch before showing value,high,Ask for each permission at the moment it is needed,Open`;
+
+// Flexible header lookup: matches "Audit Type", "audit_type", "audittype", etc.
+function headerVal(row, ...names) {
+  const keys = Object.keys(row);
+  for (const name of names) {
+    const want = name.toLowerCase().replace(/[^a-z]/g, "");
+    const k = keys.find((key) => key.toLowerCase().replace(/[^a-z]/g, "") === want);
+    if (k !== undefined && row[k] !== undefined && String(row[k]).trim() !== "") return String(row[k]).trim();
+  }
+  return "";
+}
+
+function IssueImportModal({ project, severities, areas, screenTypes, onClose, onImport }) {
+  const [text, setText] = useState("");
+  const [rows, setRows] = useState(null); // parsed + validated rows
+  const [problems, setProblems] = useState([]);
+  const fileRef = useRef(null);
+
+  const severityIds = severities.map((s) => s.id);
+  const typeIds = screenTypes.map((t) => t.id);
+
+  function normalizeSeverity(v) {
+    if (!v) return "medium";
+    const lower = v.toLowerCase();
+    const byId = severityIds.find((id) => id === lower);
+    if (byId) return byId;
+    const byLabel = severities.find((s) => s.label.toLowerCase() === lower);
+    return byLabel ? byLabel.id : null;
+  }
+
+  function parse(input) {
+    const result = Papa.parse(input.trim(), { header: true, skipEmptyLines: true });
+    const out = [];
+    const errs = [];
+    (result.data || []).forEach((raw, i) => {
+      const line = i + 2; // header is line 1
+      const module = headerVal(raw, "Module");
+      const screen = headerVal(raw, "Screen", "Screen Name");
+      const summary = headerVal(raw, "Summary", "Issue", "Issue Summary", "Description");
+      if (!module || !screen || !summary) {
+        errs.push(`Line ${line}: needs Module, Screen, and Summary — skipped.`);
+        return;
+      }
+      const severityRaw = headerVal(raw, "Severity");
+      const severity = normalizeSeverity(severityRaw) ?? null;
+      if (severityRaw && severity === null) {
+        errs.push(`Line ${line}: unknown severity "${severityRaw}" — defaulted to medium.`);
+      }
+      const auditTypeRaw = headerVal(raw, "Audit Type", "Type").toUpperCase();
+      const screenTypeRaw = headerVal(raw, "Screen Type").toLowerCase();
+      out.push({
+        module, screen, summary,
+        screenType: typeIds.includes(screenTypeRaw) ? screenTypeRaw : "screen",
+        auditType: auditTypeRaw === "UI" ? "UI" : "UX",
+        area: headerVal(raw, "Area") || "Others",
+        severity: severity || "medium",
+        recommendation: headerVal(raw, "Recommendation"),
+        aiPrompt: headerVal(raw, "AI Prompt", "Prompt"),
+        status: headerVal(raw, "Status") || "Open",
+      });
+    });
+    setRows(out);
+    setProblems(errs);
+  }
+
+  function handleFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => { setText(String(reader.result)); parse(String(reader.result)); };
+    reader.readAsText(file);
+  }
+
+  function downloadTemplate() {
+    const blob = new Blob([ISSUE_CSV_TEMPLATE], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "annotex-issues-template.csv";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  return (
+    <div className="uxa-modal-overlay top" onClick={onClose}>
+      <div className="uxa-import-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="uxa-export-head">
+          <div><h2>Bulk import issues</h2><p>Into {project.name} — CSV with one issue per row</p></div>
+          <button onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="uxa-import-body">
+          <div className="uxa-import-main">
+            <div className="uxa-panel-head" style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="uxa-btn tiny" onClick={() => fileRef.current?.click()}><FileUp size={12} /> Upload CSV</button>
+                <input ref={fileRef} type="file" accept=".csv,.txt" hidden onChange={(e) => handleFile(e.target.files[0])} />
+                <button className="uxa-btn tiny" onClick={downloadTemplate}><FileJson size={12} /> Download template</button>
+              </div>
+              <span className="uxa-text-muted" style={{ fontSize: 11 }}>Columns: Module, Screen, Screen Type, Audit Type, Area, Summary, Severity, Recommendation, Status</span>
+            </div>
+            <textarea
+              className="uxa-import-textarea" rows={8}
+              placeholder={"Or paste CSV here…\n\nModule,Screen,Audit Type,Area,Summary,Severity\nCheckout,Cart,UX,Forms,Stepper allows zero quantity,medium"}
+              value={text}
+              onChange={(e) => { setText(e.target.value); if (e.target.value.trim()) parse(e.target.value); else { setRows(null); setProblems([]); } }}
+            />
+
+            {problems.length > 0 && (
+              <div className="uxa-login-error" style={{ marginTop: 8, display: "block" }}>
+                {problems.slice(0, 5).map((p, i) => <div key={i}>{p}</div>)}
+                {problems.length > 5 && <div>…and {problems.length - 5} more.</div>}
+              </div>
+            )}
+
+            {rows && rows.length > 0 && (
+              <>
+                <h4 style={{ fontSize: 12.5, margin: "14px 0 6px" }}>Preview ({rows.length} issue{rows.length === 1 ? "" : "s"})</h4>
+                <div style={{ maxHeight: 220, overflowY: "auto" }}>
+                  <table className="uxa-table">
+                    <thead><tr><th>Module</th><th>Screen</th><th>Type</th><th>Area</th><th>Summary</th><th>Severity</th></tr></thead>
+                    <tbody>
+                      {rows.slice(0, 50).map((r, i) => {
+                        const modExists = project.modules.some((m) => m.name.toLowerCase() === r.module.toLowerCase());
+                        const scrExists = modExists && project.modules.find((m) => m.name.toLowerCase() === r.module.toLowerCase()).screens.some((s) => s.name.toLowerCase() === r.screen.toLowerCase());
+                        return (
+                          <tr key={i}>
+                            <td>{r.module}{!modExists && <span className="uxa-chip tiny" style={{ marginLeft: 5 }}>new</span>}</td>
+                            <td>{r.screen}{!scrExists && <span className="uxa-chip tiny" style={{ marginLeft: 5 }}>new</span>}</td>
+                            <td>{r.auditType}</td>
+                            <td>{r.area}</td>
+                            <td className="uxa-cell-truncate" title={r.summary}>{r.summary}</td>
+                            <td>{r.severity}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  {rows.length > 50 && <p className="uxa-text-muted" style={{ fontSize: 11 }}>Showing first 50 of {rows.length}.</p>}
+                </div>
+              </>
+            )}
+            {rows && rows.length === 0 && <div className="uxa-empty" style={{ marginTop: 10 }}>No valid rows found — check the column headers.</div>}
+          </div>
+          <div className="uxa-export-preview">
+            <div className="uxa-preview-label"><Info size={12} /> How it works</div>
+            <p className="uxa-text-muted" style={{ fontSize: 11.5 }}>
+              Modules and screens are matched by name (case-insensitive). Anything that doesn't exist yet is created automatically — rows marked <span className="uxa-chip tiny">new</span> in the preview.
+              Issue IDs (UX-###/UI-###) continue from your existing numbering. Severity accepts your configured levels ({severityIds.join(", ")}); anything else defaults to medium.
+            </p>
+          </div>
+        </div>
+        <div className="uxa-export-footer">
+          <span className="uxa-text-muted">{rows ? `${rows.length} ready to import` : "Paste or upload a CSV to preview"}</span>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="uxa-btn" onClick={onClose}>Cancel</button>
+            <button className="uxa-btn primary" disabled={!rows || rows.length === 0} onClick={() => onImport(rows)}><FileUp size={13} /> Import {rows?.length || ""} issue{rows?.length === 1 ? "" : "s"}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================== FIRST-TIME WELCOME TOUR ============================== */
+
+const TOUR_STEPS = [
+  {
+    icon: Layers, title: "Welcome to Annotex",
+    body: "Annotex is a structured workspace for UX audits: log findings screen by screen, score them with proven checklists, and ship polished client reports. This quick tour shows you around — it takes about a minute.",
+  },
+  {
+    icon: FolderKanban, title: "Projects & the Audit Workspace",
+    body: "Everything lives inside a project. Each project holds modules (like \"Checkout\" or \"Onboarding\"), each module holds screens — including popups, modals, and slide-outs — and each screen holds the issues you log. We've added 2 sample projects so you can poke around before creating your own.",
+  },
+  {
+    icon: Upload, title: "Bulk import, two ways",
+    body: "Skip the manual setup: paste an outline or upload a CSV to create modules and screens in one go (the ⬆ button in the workspace sidebar), or bulk-upload a CSV of issues — missing modules and screens get created automatically.",
+  },
+  {
+    icon: LayoutTemplate, title: "Audit Templates",
+    body: "Run standardized reviews with 15 built-in checklists — Nielsen's heuristics, WCAG accessibility, mobile UX, and more — or build your own. Pick a template, choose what to audit, and a step-by-step wizard walks you through every item with live scoring.",
+  },
+  {
+    icon: Sparkles, title: "AI assistance everywhere",
+    body: "Every issue and checklist item has one-click AI help: generate recommendations, suggest severity, write redesign prompts, estimate effort, and draft acceptance criteria.",
+  },
+  {
+    icon: FileBarChart, title: "Reports & the Export Center",
+    body: "When the audit's done, export it as PDF, Excel, CSV, Word, PowerPoint, or JSON — scoped to a whole project, one screen, or a filtered issue list, with your own branding on the cover.",
+  },
+];
+
+function WelcomeTour({ username, isAdmin, onFinish }) {
+  const [step, setStep] = useState(0);
+  const isLast = step === TOUR_STEPS.length - 1;
+  const s = TOUR_STEPS[step];
+  const Icon = s.icon;
+
+  return (
+    <div className="uxa-modal-overlay" style={{ zIndex: 90 }}>
+      <div className="uxa-modal uxa-tour-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="uxa-tour-icon"><Icon size={22} /></div>
+        <h3>{step === 0 && username ? `Welcome, ${username}!` : s.title}</h3>
+        {step === 0 && username && <h4 className="uxa-tour-subtitle">{s.title}</h4>}
+        <p>{s.body}</p>
+
+        <div className="uxa-tour-dots">
+          {TOUR_STEPS.map((_, i) => (
+            <button key={i} className={`uxa-tour-dot ${i === step ? "active" : ""} ${i < step ? "done" : ""}`} onClick={() => setStep(i)} />
+          ))}
+        </div>
+
+        <div className="uxa-tour-nav">
+          <button className="uxa-btn ghost" onClick={() => onFinish(null)}>Skip tour</button>
+          <div style={{ display: "flex", gap: 8 }}>
+            {step > 0 && <button className="uxa-btn" onClick={() => setStep(step - 1)}><ArrowLeft size={13} /> Back</button>}
+            {isLast ? (
+              <button className="uxa-btn primary" onClick={() => onFinish("projects")}><Check size={14} /> Get started</button>
+            ) : (
+              <button className="uxa-btn primary" onClick={() => setStep(step + 1)}>Next <ChevronRight size={13} /></button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CommandPalette({ projects, screensFlat, issuesFlat, onClose, onGoto, onOpenScreen }) {
   const [q, setQ] = useState("");
   const views = [
@@ -5821,6 +6134,20 @@ function StyleSheet() {
       .uxa-gated-feature-row span { font-size: 11px; color: var(--text-muted); }
       .uxa-lead-stat-btn { border: 1px solid var(--border); cursor: pointer; text-align: left; }
       .uxa-lead-stat-btn.active { border-color: var(--primary); background: var(--primary-soft); }
+
+      /* Welcome tour */
+      .uxa-tour-modal { width: 440px; max-width: 92vw; text-align: center; }
+      .uxa-tour-icon { width: 52px; height: 52px; border-radius: 14px; background: var(--primary-soft); color: var(--primary); display: flex; align-items: center; justify-content: center; margin: 4px auto 14px; }
+      .uxa-tour-modal h3 { margin: 0 0 4px; font-size: 17px; }
+      .uxa-tour-subtitle { margin: 0 0 4px; font-size: 13px; color: var(--text-muted); font-weight: 600; }
+      .uxa-tour-modal p { font-size: 12.5px; color: var(--text-muted); line-height: 1.55; margin: 8px 0 18px; }
+      .uxa-tour-dots { display: flex; justify-content: center; gap: 6px; margin-bottom: 18px; }
+      .uxa-tour-dot { width: 8px; height: 8px; border-radius: 50%; border: none; padding: 0; background: var(--border); }
+      .uxa-tour-dot.done { background: var(--primary-soft); }
+      .uxa-tour-dot.active { background: var(--primary); }
+      .uxa-tour-nav { display: flex; justify-content: space-between; align-items: center; }
+      .uxa-btn.ghost { border: none; background: transparent; color: var(--text-faint); }
+      .uxa-btn.ghost:hover { color: var(--text-muted); }
 
       @media (max-width: 900px) {
         .uxa-sidebar { display: none; }
